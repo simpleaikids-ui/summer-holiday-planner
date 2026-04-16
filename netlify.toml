@@ -1,0 +1,4 @@
+[build]
+  # No build command — site is a static index.html
+  command = ""
+  publish = "."

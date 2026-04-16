@@ -395,20 +395,26 @@ function wmoLookup(code) {
 }
 
 /* Fetch today's real weather for a zip code via Open-Meteo (free, no key).
-   Returns null if the API is unavailable (e.g. sandboxed artifact). */
+   Returns null if the API is unavailable (e.g. sandboxed artifact).
+   Includes a 5-second timeout so the spinner never gets stuck. */
 async function fetchTodayWeather(zip) {
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
     const geoRes = await fetch(
-      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(zip)}&count=1&language=en&format=json`
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(zip)}&count=1&language=en&format=json`,
+      { signal: controller.signal }
     );
     const geoData = await geoRes.json();
-    if (!geoData.results || geoData.results.length === 0) return null;
+    if (!geoData.results || geoData.results.length === 0) { clearTimeout(timeout); return null; }
     const { latitude: lat, longitude: lon, name: locName } = geoData.results[0];
     const wxRes = await fetch(
       `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
       `&daily=temperature_2m_max,temperature_2m_min,weather_code` +
-      `&temperature_unit=fahrenheit&timezone=auto&forecast_days=1`
+      `&temperature_unit=fahrenheit&timezone=auto&forecast_days=1`,
+      { signal: controller.signal }
     );
+    clearTimeout(timeout);
     const wxData = await wxRes.json();
     if (!wxData.daily || !wxData.daily.time.length) return null;
     const wmo = wmoLookup(wxData.daily.weather_code[0]);
@@ -421,7 +427,7 @@ async function fetchTodayWeather(zip) {
       indoor: wmo.indoor,
     };
   } catch (err) {
-    return null; // API blocked or network error
+    return null; // API blocked, network error, or timeout
   }
 }
 
