@@ -6,24 +6,33 @@
   <meta name="description" content="Summer Holiday Planner - Plan activities, earn points, and have an amazing summer!" />
   <meta name="theme-color" content="#6366f1" />
   <title>Summer Holiday Planner</title>
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
-  <script src="https://unpkg.com/lucide-react@0.383.0/dist/umd/lucide-react.min.js"></script>
   <style>
     .safe-area-pb { padding-bottom: env(safe-area-inset-bottom, 0px); }
     @media print { nav, header, aside, button { display: none !important; } main { margin: 0 !important; padding: 0 !important; } }
+    body { margin: 0; }
   </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@18.3.1",
+      "react/": "https://esm.sh/react@18.3.1/",
+      "react-dom": "https://esm.sh/react-dom@18.3.1",
+      "react-dom/": "https://esm.sh/react-dom@18.3.1/",
+      "recharts": "https://esm.sh/recharts@2.12.7?external=react,react-dom",
+      "lucide-react": "https://esm.sh/lucide-react@0.383.0?external=react"
+    }
+  }
+  </script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
   <div id="root"></div>
-  <script type="text/babel">
-
-const { useState, useEffect, useMemo } = React;
-const {
-  Sun, Star, Gift, Calendar: CalIcon, CheckCircle2, Plus,
+  <script type="text/babel" data-type="module">
+import React from "react";
+import { useState, useEffect, useMemo } from "react";
+import {
+  Sun, Star, Gift, Calendar as CalIcon, CheckCircle2, Plus,
   ChevronLeft, ChevronRight, Flame, Target, BookOpen, Palette,
   Dumbbell, Home, Users, Sparkles, Rocket, Fish, TreePine, Gamepad2,
   X, BarChart3, ArrowRight, Check, Trash2, Heart, UserPlus,
@@ -31,9 +40,12 @@ const {
   GripVertical, Flag, Timer, Package, AlertCircle,
   LayoutGrid, Columns, List, Trophy, Lock, Ticket, Medal, Award, Shirt, Frame, ImageIcon,
   MapPin, Loader2, Pencil, SmilePlus
-} = lucideReact;
-const { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } = Recharts;
-
+} from "lucide-react";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell
+} from "recharts";
+import { createRoot } from "react-dom/client";
 
 /* ─── Utility ─── */
 const cn = (...c) => c.filter(Boolean).join(" ");
@@ -2361,7 +2373,7 @@ function App() {
 }
 
 
-ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+createRoot(document.getElementById("root")).render(<App />);
   </script>
 </body>
 </html>
