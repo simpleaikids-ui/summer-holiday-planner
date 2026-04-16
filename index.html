@@ -195,6 +195,30 @@ function getWeekStartDate(dateStr) {
   return dk(sun.getFullYear(), sun.getMonth(), sun.getDate());
 }
 
+/* ─── LocalStorage persistence ─── */
+const LS_PREFIX = "sp:";
+function useLocalState(key, initial) {
+  const fullKey = LS_PREFIX + key;
+  const [state, setState] = useState(() => {
+    try {
+      const raw = localStorage.getItem(fullKey);
+      if (raw === null) return typeof initial === "function" ? initial() : initial;
+      return JSON.parse(raw);
+    } catch { return typeof initial === "function" ? initial() : initial; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(fullKey, JSON.stringify(state)); } catch {}
+  }, [fullKey, state]);
+  return [state, setState];
+}
+function clearAllLocalData() {
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith(LS_PREFIX))
+      .forEach(k => localStorage.removeItem(k));
+  } catch {}
+}
+
 /* ─── Data Constants ─── */
 const CATS = [
   { id: "academic", label: "Academic", icon: BookOpen, color: "bg-blue-500", text: "text-blue-600", light: "bg-blue-50", border: "border-blue-200", hex: "#3b82f6" },
@@ -950,7 +974,7 @@ function Onboarding({ onComplete }) {
 /* ═══════════════════════════════════
    MAIN APP
    ═══════════════════════════════════ */
-function App2({ profile }) {
+function App2({ profile, onClearAll }) {
   const isP = profile.role === "parent";
   const children = isP
     ? profile.children
@@ -967,21 +991,30 @@ function App2({ profile }) {
   const [selDate, setSelDate] = useState(today());
   const [weekRef, setWeekRef] = useState(new Date());
 
-  // Per-child state maps
+  // Per-child state maps (persisted across reloads)
   const init = (def) => Object.fromEntries(children.map(c => [c.id, typeof def === "function" ? def() : def]));
-  const [aTask, setATask] = useState(() => init(() => []));
-  const [aEvt, setAEvt] = useState(() => init(() => []));
-  const [famEvt, setFamEvt] = useState([]);
-  const [aPts, setAPts] = useState(() => init(0));
-  const [aStrk, setAStrk] = useState(() => init(0));
-  const [aRew, setARew] = useState(() => init(() => [...DEF_REWARDS]));
-  const [aRedm, setARedm] = useState(() => init(() => []));
-  const [aCollect, setACollect] = useState(() => init(() => []));
-  const [aDrawEntries, setADrawEntries] = useState(() => init(() => []));
-  const [aDrawResults, setADrawResults] = useState(() => init(() => []));
-  const [aAvatar, setAAvatar] = useState(() => init(() => ({ body: "#F5D0A9", hair: "👦", eyes: "👀", mouth: "😊", accessory: "" })));
-  const [aJournal, setAJournal] = useState(() => init(() => []));
-  const [leaderboardOn, setLeaderboardOn] = useState(true);
+  // Merge any previously-stored per-child map with current children so a new child
+  // added via onboarding doesn't throw on missing keys.
+  const mergeInit = (def) => (stored) => {
+    const base = init(def);
+    if (!stored || typeof stored !== "object") return base;
+    children.forEach(c => { if (stored[c.id] !== undefined) base[c.id] = stored[c.id]; });
+    return base;
+  };
+  const [aTask, setATask] = useLocalState("aTask", () => init(() => []));
+  const [aEvt, setAEvt] = useLocalState("aEvt", () => init(() => []));
+  const [famEvt, setFamEvt] = useLocalState("famEvt", []);
+  const [aPts, setAPts] = useLocalState("aPts", () => init(0));
+  const [aStrk, setAStrk] = useLocalState("aStrk", () => init(0));
+  const [aRew, setARew] = useLocalState("aRew", () => init(() => [...DEF_REWARDS]));
+  const [aRedm, setARedm] = useLocalState("aRedm", () => init(() => []));
+  const [aCollect, setACollect] = useLocalState("aCollect", () => init(() => []));
+  const [aDrawEntries, setADrawEntries] = useLocalState("aDrawEntries", () => init(() => []));
+  const [aDrawResults, setADrawResults] = useLocalState("aDrawResults", () => init(() => []));
+  const [aAvatar, setAAvatar] = useLocalState("aAvatar", () => init(() => ({ body: "#F5D0A9", hair: "👦", eyes: "👀", mouth: "😊", accessory: "" })));
+  const [aJournal, setAJournal] = useLocalState("aJournal", () => init(() => []));
+  const [leaderboardOn, setLeaderboardOn] = useLocalState("leaderboardOn", true);
+  const [mClear, setMClear] = useState(false);
 
   // Weather – real forecast for today only (via Open-Meteo API)
   const [todayWx, setTodayWx] = useState(null); // { locName, hi, lo, icon, label, indoor } or null
@@ -2282,7 +2315,7 @@ function App2({ profile }) {
                 </button>
               ))}
             </nav>
-            <div className="p-3 border-t border-gray-100">
+            <div className="p-3 border-t border-gray-100 space-y-1">
               <div className="flex items-center gap-2 px-2 py-1.5">
                 <div className={cn("w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold bg-gradient-to-br", grad)}>
                   {(isP ? profile.name : child.name)[0]?.toUpperCase()}
@@ -2292,6 +2325,10 @@ function App2({ profile }) {
                   <div className="text-[10px] text-gray-400">{isP ? "Parent" : `${child.grade} grade`}</div>
                 </div>
               </div>
+              <button onClick={() => { setMClear(true); setSideOpen(false); }}
+                className="flex items-center gap-2 w-full px-2.5 py-2 rounded-xl text-xs font-semibold text-gray-500 hover:text-red-600 hover:bg-red-50">
+                <Trash2 className="w-3.5 h-3.5" />Clear all data
+              </button>
             </div>
           </div>
         </div>
@@ -2336,7 +2373,7 @@ function App2({ profile }) {
             </button>
           ))}
         </nav>
-        <div className="p-2 border-t border-gray-100">
+        <div className="p-2 border-t border-gray-100 space-y-1">
           <div className="flex items-center gap-2 px-2 py-1.5">
             <div className={cn("w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold bg-gradient-to-br", grad)}>
               {(isP ? profile.name : child.name)[0]?.toUpperCase()}
@@ -2346,6 +2383,10 @@ function App2({ profile }) {
               <div className="text-[10px] text-gray-400">{isP ? "Parent" : `${child.grade} grade`}</div>
             </div>
           </div>
+          <button onClick={() => setMClear(true)}
+            className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-xl text-[11px] font-semibold text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors">
+            <Trash2 className="w-3.5 h-3.5" />Clear all data
+          </button>
         </div>
       </aside>
 
@@ -2619,14 +2660,42 @@ function App2({ profile }) {
           );
         })()}
       </Modal>
+
+      <Modal show={mClear} onClose={() => setMClear(false)} title="Clear all data?">
+        <div className="space-y-4">
+          <div className="flex gap-3 items-start p-3 bg-red-50 rounded-2xl border-2 border-red-200">
+            <span className="text-2xl flex-shrink-0">⚠️</span>
+            <div>
+              <p className="text-sm font-bold text-red-800">This will permanently erase everything:</p>
+              <ul className="text-xs text-red-700 mt-1 space-y-0.5 list-disc list-inside">
+                <li>Your profile & children</li>
+                <li>All tasks, events, and journal entries</li>
+                <li>Points, streaks, badges, and collectibles</li>
+                <li>Custom rewards and redemptions</li>
+              </ul>
+              <p className="text-xs text-red-700 mt-2 font-semibold">You'll be taken back to the welcome screen. This can't be undone.</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setMClear(false)}
+              className="flex-1 py-2.5 rounded-full font-bold text-gray-600 bg-gray-100 hover:bg-gray-200">
+              Cancel
+            </button>
+            <button onClick={() => { setMClear(false); onClearAll?.(); }}
+              className="flex-1 py-2.5 rounded-full font-bold text-white bg-gradient-to-r from-red-500 to-rose-500 hover:shadow-lg">
+              Yes, clear it
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
 
 /* ═══ ROOT ═══ */
 function App() {
-  const [profile, setProfile] = useState(null);
-  return profile ? <App2 profile={profile} /> : <Onboarding onComplete={setProfile} />;
+  const [profile, setProfile] = useLocalState("profile", null);
+  return profile ? <App2 profile={profile} onClearAll={() => { clearAllLocalData(); setProfile(null); }} /> : <Onboarding onComplete={setProfile} />;
 }
 
 
