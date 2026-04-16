@@ -1,0 +1,2367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Summer Holiday Planner - Plan activities, earn points, and have an amazing summer!" />
+  <meta name="theme-color" content="#6366f1" />
+  <title>Summer Holiday Planner</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+  <script src="https://unpkg.com/lucide-react@0.383.0/dist/umd/lucide-react.min.js"></script>
+  <style>
+    .safe-area-pb { padding-bottom: env(safe-area-inset-bottom, 0px); }
+    @media print { nav, header, aside, button { display: none !important; } main { margin: 0 !important; padding: 0 !important; } }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+
+const { useState, useEffect, useMemo } = React;
+const {
+  Sun, Star, Gift, Calendar: CalIcon, CheckCircle2, Plus,
+  ChevronLeft, ChevronRight, Flame, Target, BookOpen, Palette,
+  Dumbbell, Home, Users, Sparkles, Rocket, Fish, TreePine, Gamepad2,
+  X, BarChart3, ArrowRight, Check, Trash2, Heart, UserPlus,
+  Repeat, CloudSun, Mountain, Music, Compass, Crown, Wand2,
+  GripVertical, Flag, Timer, Package, AlertCircle,
+  LayoutGrid, Columns, List, Trophy, Lock, Ticket, Medal, Award, Shirt, Frame, ImageIcon,
+  MapPin, Loader2, Pencil, SmilePlus
+} = lucideReact;
+const { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } = Recharts;
+
+
+/* ─── Utility ─── */
+const cn = (...c) => c.filter(Boolean).join(" ");
+const YEAR = 2026;
+const DS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const DF = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function getDIM(m, y) { return new Date(y, m + 1, 0).getDate(); }
+function getFDOW(m, y) { return new Date(y, m, 1).getDay(); }
+function dk(y, m, d) {
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+function today() {
+  const t = new Date();
+  return dk(t.getFullYear(), t.getMonth(), t.getDate());
+}
+function parsedk(s) {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m, d);
+}
+function fmtDate(s) {
+  if (!s) return "";
+  return parsedk(s).toLocaleDateString("en-US", {
+    weekday: "short", month: "short", day: "numeric"
+  });
+}
+function weekDatesFor(ref) {
+  const d = new Date(ref);
+  const sun = new Date(d);
+  sun.setDate(d.getDate() - d.getDay());
+  return Array.from({ length: 7 }, (_, i) => {
+    const x = new Date(sun);
+    x.setDate(sun.getDate() + i);
+    return dk(x.getFullYear(), x.getMonth(), x.getDate());
+  });
+}
+function expandRec(start, end, dow) {
+  const dates = [];
+  const s = new Date(start);
+  const e = new Date(end);
+  const d = new Date(s);
+  while (d.getDay() !== dow) d.setDate(d.getDate() + 1);
+  while (d <= e) {
+    dates.push(dk(d.getFullYear(), d.getMonth(), d.getDate()));
+    d.setDate(d.getDate() + 7);
+  }
+  return dates;
+}
+function daysLeft(endDate) {
+  return Math.max(0, Math.ceil((new Date(endDate) - new Date()) / 86400000));
+}
+function getWeekStartDate(dateStr) {
+  const d = parsedk(dateStr);
+  const sun = new Date(d);
+  sun.setDate(d.getDate() - d.getDay());
+  return dk(sun.getFullYear(), sun.getMonth(), sun.getDate());
+}
+
+/* ─── Data Constants ─── */
+const CATS = [
+  { id: "academic", label: "Academic", icon: BookOpen, color: "bg-blue-500", text: "text-blue-600", light: "bg-blue-50", border: "border-blue-200", hex: "#3b82f6" },
+  { id: "creative", label: "Creative", icon: Palette, color: "bg-purple-500", text: "text-purple-600", light: "bg-purple-50", border: "border-purple-200", hex: "#8b5cf6" },
+  { id: "physical", label: "Physical", icon: Dumbbell, color: "bg-green-500", text: "text-green-600", light: "bg-green-50", border: "border-green-200", hex: "#10b981" },
+  { id: "chores", label: "Chores", icon: Home, color: "bg-amber-500", text: "text-amber-600", light: "bg-amber-50", border: "border-amber-200", hex: "#f59e0b" },
+  { id: "social", label: "Social", icon: Users, color: "bg-pink-500", text: "text-pink-600", light: "bg-pink-50", border: "border-pink-200", hex: "#ec4899" },
+  { id: "free", label: "Free Choice", icon: Sparkles, color: "bg-teal-500", text: "text-teal-600", light: "bg-teal-50", border: "border-teal-200", hex: "#14b8a6" },
+];
+const DIFFS = [
+  { id: "easy", label: "Easy", points: 10, color: "text-green-600", bg: "bg-green-100" },
+  { id: "medium", label: "Medium", points: 25, color: "text-amber-600", bg: "bg-amber-100" },
+  { id: "hard", label: "Hard", points: 50, color: "text-red-600", bg: "bg-red-100" },
+];
+const VIBES = [
+  { id: "space", label: "Space Explorer", icon: Rocket, gradient: "from-indigo-600 to-violet-500", emoji: "🚀" },
+  { id: "ocean", label: "Ocean Adventure", icon: Fish, gradient: "from-cyan-500 to-blue-500", emoji: "🐠" },
+  { id: "jungle", label: "Jungle Quest", icon: TreePine, gradient: "from-emerald-500 to-green-600", emoji: "🌴" },
+  { id: "arcade", label: "Pixel Arcade", icon: Gamepad2, gradient: "from-rose-500 to-orange-400", emoji: "🎮" },
+  { id: "sunset", label: "Sunset Chill", icon: CloudSun, gradient: "from-orange-400 to-pink-500", emoji: "🌅" },
+  { id: "mountain", label: "Mountain Trek", icon: Mountain, gradient: "from-slate-600 to-emerald-500", emoji: "🏔️" },
+  { id: "music", label: "Music Festival", icon: Music, gradient: "from-fuchsia-500 to-purple-600", emoji: "🎵" },
+  { id: "safari", label: "Safari Explorer", icon: Compass, gradient: "from-amber-500 to-yellow-500", emoji: "🦁" },
+  { id: "royal", label: "Royal Kingdom", icon: Crown, gradient: "from-violet-600 to-indigo-700", emoji: "👑" },
+  { id: "wizard", label: "Magic Academy", icon: Wand2, gradient: "from-purple-600 to-blue-700", emoji: "🧙" },
+];
+const TIERS = [
+  { name: "Bronze", min: 0, icon: "🥉" },
+  { name: "Silver", min: 500, icon: "🥈" },
+  { name: "Gold", min: 1500, icon: "🥇" },
+  { name: "Platinum", min: 3000, icon: "💎" },
+];
+const BADGES = [
+  { id: "bk", name: "Bookworm", desc: "10 academic", icon: "📚", req: (t) => t.filter(x => x.done && x.cat === "academic").length >= 10 },
+  { id: "ar", name: "Creative Genius", desc: "10 creative", icon: "🎨", req: (t) => t.filter(x => x.done && x.cat === "creative").length >= 10 },
+  { id: "at", name: "Super Athlete", desc: "10 physical", icon: "🏅", req: (t) => t.filter(x => x.done && x.cat === "physical").length >= 10 },
+  { id: "hp", name: "Helping Hand", desc: "15 chores", icon: "🤝", req: (t) => t.filter(x => x.done && x.cat === "chores").length >= 15 },
+  { id: "s3", name: "On Fire", desc: "3-day streak", icon: "🔥", req: (_, s) => s >= 3 },
+  { id: "s7", name: "Unstoppable", desc: "7-day streak", icon: "⚡", req: (_, s) => s >= 7 },
+  { id: "p1", name: "Getting Started", desc: "50 pts", icon: "⭐", req: (_, _s, p) => p >= 50 },
+  { id: "p5", name: "Point Master", desc: "500 pts", icon: "🌟", req: (_, _s, p) => p >= 500 },
+];
+const REWARD_ICONS = ["📱","🍕","🍦","📖","🎬","🌳","🏠","🎢","🎪","🛹","🧸","🎨","🎮","🏊","⚽","🎵","🍰","🎁","✈️","🐶"];
+const DEF_REWARDS = [
+  { id: "r1", name: "30 min screen time", cost: 50, icon: "📱" },
+  { id: "r2", name: "Choose dinner", cost: 75, icon: "🍕" },
+  { id: "r3", name: "Ice cream outing", cost: 150, icon: "🍦" },
+  { id: "r4", name: "New book", cost: 300, icon: "📖" },
+  { id: "r5", name: "Movie night pick", cost: 200, icon: "🎬" },
+  { id: "r6", name: "Park trip", cost: 100, icon: "🌳" },
+  { id: "r7", name: "Sleepover", cost: 400, icon: "🏠" },
+  { id: "r8", name: "Amusement park", cost: 1000, icon: "🎢" },
+];
+const SUGG = {
+  academic: [{ t: "Read for 20 minutes", d: "easy" }, { t: "Math worksheet", d: "medium" }, { t: "Journal entry", d: "easy" }, { t: "Learn 5 vocab words", d: "medium" }, { t: "Educational video & summary", d: "medium" }, { t: "Science experiment", d: "hard" }],
+  creative: [{ t: "Draw or paint", d: "easy" }, { t: "Write a story", d: "medium" }, { t: "Craft project", d: "medium" }, { t: "Instrument practice", d: "hard" }, { t: "Photo collage", d: "easy" }],
+  physical: [{ t: "30 min outdoor play", d: "easy" }, { t: "Bike ride", d: "easy" }, { t: "Practice a sport", d: "medium" }, { t: "Yoga / stretching", d: "easy" }, { t: "Swim 30 min", d: "medium" }],
+  chores: [{ t: "Make your bed", d: "easy" }, { t: "Clean your room", d: "medium" }, { t: "Help with dishes", d: "easy" }, { t: "Take out trash", d: "easy" }, { t: "Help prepare meal", d: "medium" }],
+  social: [{ t: "Call a friend", d: "easy" }, { t: "Write a letter", d: "medium" }, { t: "Board game with family", d: "easy" }],
+  free: [{ t: "Free play!", d: "easy" }, { t: "Try something new", d: "hard" }, { t: "Teach someone a skill", d: "medium" }],
+};
+const PGOALS = [
+  { id: "academic", label: "Academic catch-up", icon: "📚", desc: "Reading, math, learning gaps" },
+  { id: "enrichment", label: "Enrichment", icon: "🔬", desc: "New interests and deeper skills" },
+  { id: "outdoor", label: "Outdoor time", icon: "🌳", desc: "Nature, exercise, fresh air" },
+  { id: "chores", label: "Chore habits", icon: "🧹", desc: "Responsibility and household skills" },
+  { id: "social", label: "Social skills", icon: "🤝", desc: "Friendships and communication" },
+  { id: "creative", label: "Creative exploration", icon: "🎨", desc: "Arts, music, writing" },
+  { id: "fitness", label: "Physical fitness", icon: "💪", desc: "Sports, swimming, active play" },
+  { id: "screen", label: "Manage screen time", icon: "📵", desc: "Balance tech with offline" },
+];
+const TEMPLATES = [
+  { id: "reading", name: "Reading Summer", icon: "📚", desc: "Books and writing with outdoor play", tasks: [
+    { t: "Read for 30 min", cat: "academic", d: "easy" }, { t: "Write in journal", cat: "academic", d: "easy" },
+    { t: "30 min outdoor play", cat: "physical", d: "easy" }, { t: "Free choice", cat: "free", d: "easy" }
+  ]},
+  { id: "stem", name: "STEM Explorer", icon: "🔬", desc: "Science, math challenges, coding", tasks: [
+    { t: "Math challenge 15 min", cat: "academic", d: "medium" }, { t: "Science/coding project", cat: "academic", d: "hard" },
+    { t: "Build/tinker time", cat: "creative", d: "medium" }, { t: "Active play", cat: "physical", d: "easy" }
+  ]},
+  { id: "balanced", name: "Balanced Mix", icon: "⚖️", desc: "Equal parts learning, play, creativity", tasks: [
+    { t: "Reading 20 min", cat: "academic", d: "easy" }, { t: "Creative project", cat: "creative", d: "medium" },
+    { t: "Physical activity", cat: "physical", d: "easy" }, { t: "Household chore", cat: "chores", d: "easy" },
+    { t: "Social or free time", cat: "social", d: "easy" }
+  ]},
+  { id: "active", name: "Active Summer", icon: "⚽", desc: "Sports and outdoor adventures", tasks: [
+    { t: "Sport practice", cat: "physical", d: "medium" }, { t: "Swim or bike", cat: "physical", d: "easy" },
+    { t: "Read 15 min", cat: "academic", d: "easy" }, { t: "Help with chore", cat: "chores", d: "easy" }
+  ]},
+  { id: "creative", name: "Creative Camp", icon: "🎨", desc: "Art, music, drama, hands-on projects", tasks: [
+    { t: "Art / craft project", cat: "creative", d: "medium" }, { t: "Music or dance", cat: "creative", d: "medium" },
+    { t: "Story writing", cat: "academic", d: "easy" }, { t: "Outdoor adventure", cat: "physical", d: "easy" }
+  ]},
+];
+const COLLECTIBLES = [
+  { id: "c1", name: "Gold Avatar Frame", icon: "🖼️", type: "avatar", desc: "Premium avatar border", requirement: 100 },
+  { id: "c2", name: "Silver Outfit", icon: "👔", type: "outfit", desc: "Shiny silver clothing", requirement: 250 },
+  { id: "c3", name: "Rainbow Background", icon: "🌈", type: "background", desc: "Colorful wallpaper", requirement: 500 },
+  { id: "c4", name: "Diamond Frame", icon: "💎", type: "avatar", desc: "Ultra-rare frame", requirement: 1000 },
+  { id: "c5", name: "Galaxy Outfit", icon: "🌌", type: "outfit", desc: "Star-covered clothes", requirement: 300 },
+  { id: "c6", name: "Ocean Blue Background", icon: "🌊", type: "background", desc: "Deep blue theme", requirement: 150 },
+  { id: "c7", name: "Cherry Blossom Frame", icon: "🌸", type: "avatar", desc: "Floral border", requirement: 200 },
+  { id: "c8", name: "Sunset Outfit", icon: "🧡", type: "outfit", desc: "Warm orange clothes", requirement: 350 },
+  { id: "c9", name: "Forest Green Background", icon: "🌲", type: "background", desc: "Nature-inspired", requirement: 180 },
+  { id: "c10", name: "Phoenix Frame", icon: "🔥", type: "avatar", desc: "Flaming border", requirement: 750 },
+  { id: "c11", name: "Starlight Outfit", icon: "✨", type: "outfit", desc: "Glittery ensemble", requirement: 600 },
+  { id: "c12", name: "Lavender Background", icon: "💜", type: "background", desc: "Soft purple theme", requirement: 220 },
+  { id: "c13", name: "Shadow Frame", icon: "🎭", type: "avatar", desc: "Mysterious border", requirement: 400 },
+  { id: "c14", name: "Champion Outfit", icon: "👑", type: "outfit", desc: "Gold champion clothes", requirement: 1500 },
+  { id: "c15", name: "Midnight Sky Background", icon: "🌙", type: "background", desc: "Dark starry theme", requirement: 800 },
+];
+
+/* ─── Avatar Builder ─── */
+const AVATAR_PARTS = {
+  body: [
+    { id: "b1", color: "#F5D0A9", label: "Light" },
+    { id: "b2", color: "#E8B299", label: "Medium" },
+    { id: "b3", color: "#D4A574", label: "Tan" },
+    { id: "b4", color: "#A67C52", label: "Brown" },
+    { id: "b5", color: "#8B6F47", label: "Dark" },
+    { id: "b6", color: "#6B5344", label: "Deep" },
+  ],
+  hair: [
+    { id: "h1", emoji: "👦", label: "Boy Bob" },
+    { id: "h2", emoji: "👧", label: "Girl Bob" },
+    { id: "h3", emoji: "🧑‍🦰", label: "Wavy" },
+    { id: "h4", emoji: "👩‍🦱", label: "Curly" },
+    { id: "h5", emoji: "👨‍🦲", label: "Bald" },
+    { id: "h6", emoji: "🧔", label: "Spiky" },
+    { id: "h7", emoji: "👰", label: "Long" },
+    { id: "h8", emoji: "🧑‍🎤", label: "Punk" },
+  ],
+  eyes: [
+    { id: "e1", emoji: "👀", label: "Normal" },
+    { id: "e2", emoji: "🥺", label: "Big" },
+    { id: "e3", emoji: "😎", label: "Cool" },
+    { id: "e4", emoji: "🤨", label: "Raised Brow" },
+    { id: "e5", emoji: "😴", label: "Sleepy" },
+    { id: "e6", emoji: "👁️", label: "Mysterious" },
+  ],
+  mouth: [
+    { id: "m1", emoji: "😊", label: "Happy" },
+    { id: "m2", emoji: "😐", label: "Neutral" },
+    { id: "m3", emoji: "😮", label: "Surprised" },
+    { id: "m4", emoji: "😎", label: "Cool Grin" },
+    { id: "m5", emoji: "😛", label: "Silly" },
+  ],
+  accessory: [
+    { id: "a1", emoji: "🎩", label: "Top Hat", points: 0 },
+    { id: "a2", emoji: "🕶️", label: "Sunglasses", points: 0 },
+    { id: "a3", emoji: "👑", label: "Crown", points: 200 },
+    { id: "a4", emoji: "🎭", label: "Mask", points: 100 },
+    { id: "a5", emoji: "🧣", label: "Scarf", points: 150 },
+    { id: "a6", emoji: "💎", label: "Gem", points: 300 },
+    { id: "a7", emoji: "🎗️", label: "Ribbon", points: 50 },
+    { id: "a8", emoji: "⭐", label: "Star", points: 250 },
+  ],
+};
+
+/* ─── Story Chapters per Vibe ─── */
+const STORY_CHAPTERS = {
+  space: [
+    { title: "Launch Prep", desc: "Get ready for blast off!", milestone: 0 },
+    { title: "Orbit Achieved", desc: "You're floating in space!", milestone: 100 },
+    { title: "Moon Landing", desc: "One giant leap...", milestone: 300 },
+    { title: "Planet Fun Reached", desc: "Discovery awaits!", milestone: 600 },
+    { title: "Supernova Hero", desc: "You're a star!", milestone: 1000 },
+  ],
+  ocean: [
+    { title: "Dipping Your Toes", desc: "Jump in the water!", milestone: 0 },
+    { title: "Swimming Strong", desc: "Making waves!", milestone: 100 },
+    { title: "Deep Dive", desc: "Coral reef explorer!", milestone: 300 },
+    { title: "Whale Encounter", desc: "Befriend the giants!", milestone: 600 },
+    { title: "Ocean Master", desc: "You rule the seas!", milestone: 1000 },
+  ],
+  jungle: [
+    { title: "Trail Blazer", desc: "Enter the jungle!", milestone: 0 },
+    { title: "Animal Friend", desc: "Meet the creatures!", milestone: 100 },
+    { title: "Canopy Navigator", desc: "Swinging through trees!", milestone: 300 },
+    { title: "Jungle Guide", desc: "You know the secrets!", milestone: 600 },
+    { title: "Jungle King", desc: "Lord of the wild!", milestone: 1000 },
+  ],
+  arcade: [
+    { title: "Power Up", desc: "Game starting!", milestone: 0 },
+    { title: "Level Unlocked", desc: "Keep winning!", milestone: 100 },
+    { title: "High Score", desc: "Champion territory!", milestone: 300 },
+    { title: "Boss Defeated", desc: "Epic victory!", milestone: 600 },
+    { title: "Arcade Legend", desc: "Unbeatable!", milestone: 1000 },
+  ],
+  sunset: [
+    { title: "Golden Hour", desc: "Sun is setting...", milestone: 0 },
+    { title: "Twilight Magic", desc: "Sky is glowing!", milestone: 100 },
+    { title: "Starlight Appears", desc: "Stars come out!", milestone: 300 },
+    { title: "Night Bliss", desc: "Peaceful evening!", milestone: 600 },
+    { title: "Chill Master", desc: "Total zen vibes!", milestone: 1000 },
+  ],
+  mountain: [
+    { title: "Base Camp", desc: "Adventure begins!", milestone: 0 },
+    { title: "Climbing Up", desc: "Making progress!", milestone: 100 },
+    { title: "Summit View", desc: "Almost there!", milestone: 300 },
+    { title: "Peak Reached", desc: "You made it!", milestone: 600 },
+    { title: "Mountain Conqueror", desc: "Peak performer!", milestone: 1000 },
+  ],
+  music: [
+    { title: "First Notes", desc: "Hear the beat!", milestone: 0 },
+    { title: "Rhythm Rising", desc: "Feel the groove!", milestone: 100 },
+    { title: "Solo Time", desc: "You're the star!", milestone: 300 },
+    { title: "Duet Harmony", desc: "Perfect together!", milestone: 600 },
+    { title: "Festival Headliner", desc: "Rock the stage!", milestone: 1000 },
+  ],
+  safari: [
+    { title: "Safari Start", desc: "Welcome to the wild!", milestone: 0 },
+    { title: "Spot the Beasts", desc: "Animals appearing!", milestone: 100 },
+    { title: "Big Five Sightings", desc: "Epic encounters!", milestone: 300 },
+    { title: "Tracker Expert", desc: "You read the signs!", milestone: 600 },
+    { title: "Safari Legend", desc: "Master tracker!", milestone: 1000 },
+  ],
+  royal: [
+    { title: "Noble Birth", desc: "Join the kingdom!", milestone: 0 },
+    { title: "Knight Training", desc: "Learning the ways!", milestone: 100 },
+    { title: "Royal Duty", desc: "Serving the crown!", milestone: 300 },
+    { title: "Royal Court", desc: "Earned your seat!", milestone: 600 },
+    { title: "King/Queen", desc: "Rule justly!", milestone: 1000 },
+  ],
+  wizard: [
+    { title: "Apprentice", desc: "Magic class begins!", milestone: 0 },
+    { title: "Spell Learner", desc: "First spells mastered!", milestone: 100 },
+    { title: "Sorcerer", desc: "Power growing!", milestone: 300 },
+    { title: "Wizard", desc: "Ancient magic flows!", milestone: 600 },
+    { title: "Archmage", desc: "Ultimate wizard power!", milestone: 1000 },
+  ],
+};
+
+/* ─── Fun Facts ─── */
+const FUN_FACTS = [
+  { text: "Did you know? Honey never spoils. Archaeologists have found 3,000-year-old honey in Egyptian tombs that's still edible!", type: "fact" },
+  { text: "Did you know? A group of flamingos is called a 'flamboyance'!", type: "fact" },
+  { text: "Riddle: I have cities, but no houses. I have mountains, but no trees. I have water, but no fish. What am I?", type: "riddle", answer: "A map!" },
+  { text: "Did you know? Octopuses have three hearts and blue blood!", type: "fact" },
+  { text: "Did you know? Bananas are berries, but strawberries aren't!", type: "fact" },
+  { text: "Riddle: What has hands but can't clap?", type: "riddle", answer: "A clock!" },
+  { text: "Did you know? Sloths only go to the bathroom once a week!", type: "fact" },
+  { text: "Did you know? A sneeze travels at 100 miles per hour!", type: "fact" },
+  { text: "Riddle: What gets wet while drying?", type: "riddle", answer: "A towel!" },
+  { text: "Did you know? Penguins have knees! They just keep them hidden under their feathers.", type: "fact" },
+  { text: "Did you know? Sharks have been around longer than dinosaurs!", type: "fact" },
+  { text: "Riddle: I speak without a mouth and hear without ears. I have no body, but I come alive with wind. What am I?", type: "riddle", answer: "An echo!" },
+  { text: "Did you know? A goldfish's memory lasts only 3 seconds... just kidding! They can remember for months!", type: "fact" },
+  { text: "Did you know? Cats spend 70% of their lives sleeping!", type: "fact" },
+  { text: "Riddle: What can travel around the world while staying in a corner?", type: "riddle", answer: "A stamp!" },
+  { text: "Did you know? The Eiffel Tower can be 15 cm taller in the summer due to heat expansion!", type: "fact" },
+  { text: "Did you know? A group of owls is called a 'parliament'!", type: "fact" },
+  { text: "Riddle: What question can you never answer 'yes' to?", type: "riddle", answer: "Are you asleep?" },
+  { text: "Did you know? Butterflies taste with their feet!", type: "fact" },
+  { text: "Did you know? An ostrich's eye is bigger than its brain!", type: "fact" },
+  { text: "Riddle: What five-letter word becomes shorter when you add two letters to it?", type: "riddle", answer: "Short (add 'er')" },
+  { text: "Did you know? Dolphins sleep with one eye open!", type: "fact" },
+  { text: "Did you know? A camel can drink 30 gallons of water in 13 minutes!", type: "fact" },
+  { text: "Riddle: What can run but never walks?", type: "riddle", answer: "Water!" },
+  { text: "Did you know? Koalas fingerprints are nearly identical to human fingerprints!", type: "fact" },
+  { text: "Did you know? A group of pandas is called an 'embarrassment'!", type: "fact" },
+  { text: "Riddle: I'm light as a feather, yet the strongest person can't hold me for five minutes. What am I?", type: "riddle", answer: "Your breath!" },
+  { text: "Did you know? Tardigrades (water bears) can survive in space!", type: "fact" },
+  { text: "Did you know? A pie-bald horse is a horse with two-color patches, usually black and white!", type: "fact" },
+  { text: "Riddle: What has a head and a tail but no body?", type: "riddle", answer: "A coin!" },
+];
+
+/* ─── Weather (real via Open-Meteo API, today only) ─── */
+const WMO_MAP = {
+  0: { icon: "☀️", label: "Clear Sky", indoor: false },
+  1: { icon: "🌤️", label: "Mainly Clear", indoor: false },
+  2: { icon: "⛅", label: "Partly Cloudy", indoor: false },
+  3: { icon: "☁️", label: "Overcast", indoor: false },
+  45: { icon: "🌫️", label: "Foggy", indoor: false },
+  48: { icon: "🌫️", label: "Foggy", indoor: false },
+  51: { icon: "🌦️", label: "Light Drizzle", indoor: false },
+  53: { icon: "🌧️", label: "Drizzle", indoor: true },
+  55: { icon: "🌧️", label: "Heavy Drizzle", indoor: true },
+  61: { icon: "🌧️", label: "Light Rain", indoor: true },
+  63: { icon: "🌧️", label: "Rain", indoor: true },
+  65: { icon: "🌧️", label: "Heavy Rain", indoor: true },
+  66: { icon: "🌧️", label: "Freezing Rain", indoor: true },
+  67: { icon: "🌧️", label: "Freezing Rain", indoor: true },
+  71: { icon: "🌨️", label: "Light Snow", indoor: false },
+  73: { icon: "🌨️", label: "Snow", indoor: true },
+  75: { icon: "🌨️", label: "Heavy Snow", indoor: true },
+  80: { icon: "🌧️", label: "Rain Showers", indoor: true },
+  81: { icon: "🌧️", label: "Rain Showers", indoor: true },
+  82: { icon: "🌧️", label: "Heavy Showers", indoor: true },
+  95: { icon: "⛈️", label: "Thunderstorm", indoor: true },
+  96: { icon: "⛈️", label: "Thunderstorm", indoor: true },
+  99: { icon: "⛈️", label: "Severe Storm", indoor: true },
+};
+function wmoLookup(code) {
+  return WMO_MAP[code] || { icon: "🌤️", label: "Fair", indoor: false };
+}
+
+/* Fetch today's real weather for a zip code via Open-Meteo (free, no key).
+   Returns null if the API is unavailable (e.g. sandboxed artifact). */
+async function fetchTodayWeather(zip) {
+  try {
+    const geoRes = await fetch(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(zip)}&count=1&language=en&format=json`
+    );
+    const geoData = await geoRes.json();
+    if (!geoData.results || geoData.results.length === 0) return null;
+    const { latitude: lat, longitude: lon, name: locName } = geoData.results[0];
+    const wxRes = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+      `&daily=temperature_2m_max,temperature_2m_min,weather_code` +
+      `&temperature_unit=fahrenheit&timezone=auto&forecast_days=1`
+    );
+    const wxData = await wxRes.json();
+    if (!wxData.daily || !wxData.daily.time.length) return null;
+    const wmo = wmoLookup(wxData.daily.weather_code[0]);
+    return {
+      locName,
+      hi: Math.round(wxData.daily.temperature_2m_max[0]),
+      lo: Math.round(wxData.daily.temperature_2m_min[0]),
+      icon: wmo.icon,
+      label: wmo.label,
+      indoor: wmo.indoor,
+    };
+  } catch (err) {
+    return null; // API blocked or network error
+  }
+}
+
+/* ─── Confetti ─── */
+function Confetti({ show, onDone }) {
+  const [pts, setPts] = useState([]);
+  useEffect(() => {
+    if (!show) return;
+    setPts(Array.from({ length: 40 }, (_, i) => ({
+      id: i, x: Math.random() * 100, dl: Math.random() * 0.5,
+      col: ["#f59e0b", "#3b82f6", "#ef4444", "#10b981", "#8b5cf6", "#ec4899"][i % 6],
+      sz: 5 + Math.random() * 7,
+    })));
+    const t = setTimeout(() => { setPts([]); onDone?.(); }, 2000);
+    return () => clearTimeout(t);
+  }, [show]);
+  if (!pts.length) return null;
+  return (
+    <div className="fixed inset-0 pointer-events-none z-50">
+      {pts.map(p => (
+        <div key={p.id} className="absolute" style={{
+          left: `${p.x}%`, top: -10, width: p.sz, height: p.sz,
+          backgroundColor: p.col, borderRadius: p.sz > 8 ? "50%" : "2px",
+          animation: `cfall 1.5s ease-in ${p.dl}s forwards`,
+        }} />
+      ))}
+      <style>{`@keyframes cfall{0%{transform:translateY(0) rotate(0);opacity:1}100%{transform:translateY(100vh) rotate(720deg);opacity:0}}`}</style>
+    </div>
+  );
+}
+
+/* ─── Toast Notification ─── */
+function Toast({ notifications, onDismiss }) {
+  if (!notifications.length) return null;
+  return (
+    <div className="fixed top-4 right-4 z-50 space-y-2 max-w-sm">
+      {notifications.map(n => (
+        <div key={n.id} className={cn(
+          "flex items-start gap-3 p-3 rounded-xl shadow-lg border animate-slide-in",
+          n.type === "streak" ? "bg-orange-50 border-orange-200" :
+          n.type === "reward" ? "bg-amber-50 border-amber-200" :
+          n.type === "reminder" ? "bg-blue-50 border-blue-200" :
+          "bg-white border-gray-200"
+        )}>
+          <span className="text-xl flex-shrink-0">{n.icon}</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">{n.title}</div>
+            <div className="text-xs text-gray-500 mt-0.5">{n.message}</div>
+          </div>
+          <button onClick={() => onDismiss(n.id)} className="p-0.5 hover:bg-gray-100 rounded text-gray-400">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ))}
+      <style>{`@keyframes slide-in{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}.animate-slide-in{animation:slide-in 0.3s ease-out}`}</style>
+    </div>
+  );
+}
+
+/* ─── Modal ─── */
+function Modal({ show, onClose, title, children, wide }) {
+  if (!show) return null;
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4" onClick={onClose}>
+      <div className={cn("bg-white rounded-2xl shadow-2xl w-full max-h-[85vh] overflow-auto", wide ? "max-w-lg" : "max-w-md")}
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-gray-100 sticky top-0 bg-white z-10 rounded-t-2xl">
+          <h3 className="font-bold text-lg text-gray-800">{title}</h3>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg">
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+        <div className="p-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════
+   ONBOARDING
+   ═══════════════════════════════════ */
+function Onboarding({ onComplete }) {
+  const [step, setStep] = useState(0);
+  const [p, setP] = useState({
+    role: "", name: "", grade: "", vibe: "space",
+    startDate: "2026-05-25", endDate: "2026-08-15",
+    zip: "",
+    interests: [], parentGoals: [], goalPri: {},
+    children: [],
+  });
+  const [cf, setCf] = useState({ name: "", grade: "", vibe: "space" });
+  const GR = ["K","1st","2nd","3rd","4th","5th","6th","7th","8th","9th","10th","11th","12th"];
+  const INT = ["Reading","Math","Science","Art","Music","Sports","Coding","Cooking","Nature","Gaming","Writing","Dance"];
+  const isP = p.role === "parent";
+
+  const addChild = () => {
+    if (!cf.name.trim() || !cf.grade) return;
+    setP(prev => ({ ...prev, children: [...prev.children, { ...cf, id: `ch-${Date.now()}` }] }));
+    setCf({ name: "", grade: "", vibe: "space" });
+  };
+  const rmChild = (id) => setP(prev => ({ ...prev, children: prev.children.filter(c => c.id !== id) }));
+  const togGoal = (gid) => {
+    setP(prev => {
+      const has = prev.parentGoals.includes(gid);
+      const goals = has ? prev.parentGoals.filter(g => g !== gid) : [...prev.parentGoals, gid];
+      const pri = { ...prev.goalPri };
+      if (has) delete pri[gid]; else pri[gid] = 3;
+      return { ...prev, parentGoals: goals, goalPri: pri };
+    });
+  };
+
+  const steps = [];
+
+  // 0: Role
+  steps.push(
+    <div key="role" className="space-y-6 text-center">
+      <h2 className="text-2xl font-bold text-gray-800">Who's setting up today?</h2>
+      <p className="text-gray-500">This helps us customize your experience</p>
+      <div className="flex gap-4 justify-center">
+        {[
+          { role: "student", label: "I'm a Student", Ic: Star, desc: "Plan my summer, earn rewards!" },
+          { role: "parent", label: "I'm a Parent", Ic: Heart, desc: "Set goals, manage family" },
+        ].map(r => (
+          <button key={r.role} onClick={() => setP(prev => ({ ...prev, role: r.role }))}
+            className={cn("flex flex-col items-center gap-3 p-6 rounded-xl border-2 transition-all w-48",
+              p.role === r.role ? "border-indigo-500 bg-indigo-50 shadow-md" : "border-gray-200 hover:border-gray-300 bg-white")}>
+            <r.Ic className={cn("w-10 h-10", p.role === r.role ? "text-indigo-500" : "text-gray-400")} />
+            <span className="font-semibold text-gray-800">{r.label}</span>
+            <span className="text-xs text-gray-500">{r.desc}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  if (isP) {
+    // Family setup
+    steps.push(
+      <div key="fam" className="space-y-5">
+        <h2 className="text-2xl font-bold text-gray-800 text-center">Set up your family</h2>
+        {p.children.length > 0 && (
+          <div className="space-y-2">
+            {p.children.map(ch => {
+              const v = VIBES.find(x => x.id === ch.vibe);
+              return (
+                <div key={ch.id} className="flex items-center gap-3 p-3 bg-white border border-gray-100 rounded-xl">
+                  <div className={cn("w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold bg-gradient-to-br", v?.gradient)}>
+                    {ch.name[0]?.toUpperCase()}
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-semibold">{ch.name}</div>
+                    <div className="text-xs text-gray-400">{ch.grade} grade · {v?.emoji} {v?.label}</div>
+                  </div>
+                  <button onClick={() => rmChild(ch.id)} className="p-1 text-gray-300 hover:text-red-400">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+          <div className="flex gap-2">
+            <input type="text" value={cf.name} onChange={e => setCf(f => ({ ...f, name: e.target.value }))}
+              placeholder="Child's name" className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white" />
+            <select value={cf.grade} onChange={e => setCf(f => ({ ...f, grade: e.target.value }))}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+              <option value="">Grade</option>
+              {GR.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-5 gap-1.5">
+            {VIBES.map(v => (
+              <button key={v.id} onClick={() => setCf(f => ({ ...f, vibe: v.id }))}
+                className={cn("flex flex-col items-center gap-1 p-1.5 rounded-lg text-xs border",
+                  cf.vibe === v.id ? "border-indigo-400 bg-white shadow-sm" : "border-transparent hover:bg-white")}>
+                <span className="text-base">{v.emoji}</span>
+                <span className="text-[9px] text-gray-500">{v.label.split(" ")[0]}</span>
+              </button>
+            ))}
+          </div>
+          <button onClick={addChild} disabled={!cf.name.trim() || !cf.grade}
+            className={cn("w-full py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2",
+              cf.name.trim() && cf.grade ? "bg-indigo-500 text-white" : "bg-gray-200 text-gray-400 cursor-not-allowed")}>
+            <UserPlus className="w-4 h-4" /> Add Child
+          </button>
+        </div>
+        <div className="p-3 rounded-xl bg-indigo-50">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Your name (parent)</label>
+          <input type="text" value={p.name} onChange={e => setP(prev => ({ ...prev, name: e.target.value }))}
+            placeholder="Your name" className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white w-full" />
+        </div>
+      </div>
+    );
+    // Goals
+    steps.push(
+      <div key="goals" className="space-y-5">
+        <h2 className="text-2xl font-bold text-gray-800 text-center">Set summer priorities</h2>
+        <div className="space-y-2">
+          {PGOALS.map(g => {
+            const sel = p.parentGoals.includes(g.id);
+            return (
+              <div key={g.id} className={cn("rounded-xl border-2", sel ? "border-amber-300 bg-amber-50" : "border-gray-100 bg-white")}>
+                <button onClick={() => togGoal(g.id)} className="flex items-center gap-3 p-3 w-full text-left">
+                  <span className="text-xl">{g.icon}</span>
+                  <div className="flex-1">
+                    <div className="text-sm font-semibold text-gray-800">{g.label}</div>
+                    <div className="text-xs text-gray-400">{g.desc}</div>
+                  </div>
+                  <div className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center",
+                    sel ? "bg-amber-500 border-amber-500" : "border-gray-300")}>
+                    {sel && <Check className="w-3 h-3 text-white" />}
+                  </div>
+                </button>
+                {sel && (
+                  <div className="px-4 pb-3 flex items-center gap-3">
+                    <span className="text-xs text-gray-500 w-12">Priority</span>
+                    <input type="range" min="1" max="5" value={p.goalPri[g.id] || 3}
+                      onChange={e => setP(prev => ({ ...prev, goalPri: { ...prev.goalPri, [g.id]: Number(e.target.value) } }))}
+                      className="flex-1 accent-amber-500" />
+                    <span className="text-sm font-bold text-amber-700 w-6 text-center">{p.goalPri[g.id] || 3}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  } else {
+    // Student name + grade
+    steps.push(
+      <div key="info" className="space-y-6">
+        <h2 className="text-2xl font-bold text-gray-800 text-center">Tell us about yourself!</h2>
+        <div className="space-y-4 max-w-sm mx-auto">
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">Your name</label>
+            <input type="text" value={p.name} onChange={e => setP(prev => ({ ...prev, name: e.target.value }))}
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg bg-white" placeholder="Enter name..." />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-2">Grade</label>
+            <div className="grid grid-cols-5 gap-2">
+              {GR.map(g => (
+                <button key={g} onClick={() => setP(prev => ({ ...prev, grade: g }))}
+                  className={cn("py-2 px-3 rounded-lg text-sm font-medium border",
+                    p.grade === g ? "bg-indigo-500 text-white border-indigo-500" : "bg-white text-gray-600 border-gray-200")}>
+                  {g}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+    // Vibe
+    steps.push(
+      <div key="vibe" className="space-y-5">
+        <h2 className="text-2xl font-bold text-gray-800 text-center">Pick your summer vibe!</h2>
+        <div className="grid grid-cols-5 gap-3 max-w-xl mx-auto">
+          {VIBES.map(v => (
+            <button key={v.id} onClick={() => setP(prev => ({ ...prev, vibe: v.id }))}
+              className={cn("flex flex-col items-center gap-2 p-3 rounded-xl border-2",
+                p.vibe === v.id ? "border-indigo-500 shadow-lg bg-white" : "border-gray-200 bg-white")}>
+              <div className={cn("w-11 h-11 rounded-full flex items-center justify-center bg-gradient-to-br", v.gradient)}>
+                <v.icon className="w-5 h-5 text-white" />
+              </div>
+              <span className="font-medium text-xs text-gray-700 text-center leading-tight">{v.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Dates & Location
+  steps.push(
+    <div key="dates" className="space-y-6 max-w-sm mx-auto">
+      <h2 className="text-2xl font-bold text-gray-800 text-center">When does summer start?</h2>
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1">First day of summer</label>
+          <input type="date" value={p.startDate} onChange={e => setP(prev => ({ ...prev, startDate: e.target.value }))}
+            className="w-full px-4 py-2.5 border border-gray-200 rounded-lg bg-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1">Back to school</label>
+          <input type="date" value={p.endDate} onChange={e => setP(prev => ({ ...prev, endDate: e.target.value }))}
+            className="w-full px-4 py-2.5 border border-gray-200 rounded-lg bg-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1">
+            <span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-indigo-500" />Zip code — optional (for local weather)</span>
+          </label>
+          <input type="text" value={p.zip} maxLength={10}
+            onChange={e => setP(prev => ({ ...prev, zip: e.target.value.replace(/[^0-9a-zA-Z\s-]/g, "") }))}
+            className="w-full px-4 py-2.5 border border-gray-200 rounded-lg bg-white" placeholder="e.g. 90210" />
+          <p className="text-xs text-gray-400 mt-1">Used to show accurate weather on your calendar</p>
+        </div>
+        <div className="text-center p-3 bg-indigo-50 rounded-lg">
+          <span className="text-indigo-700 font-medium">
+            {Math.max(0, Math.ceil((new Date(p.endDate) - new Date(p.startDate)) / 86400000))} days of summer!
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Interests
+  steps.push(
+    <div key="int" className="space-y-6">
+      <h2 className="text-2xl font-bold text-gray-800 text-center">{isP ? "What interests your kids?" : "What do you enjoy?"}</h2>
+      <div className="flex flex-wrap gap-3 justify-center max-w-lg mx-auto">
+        {INT.map(i => (
+          <button key={i}
+            onClick={() => setP(prev => ({
+              ...prev,
+              interests: prev.interests.includes(i) ? prev.interests.filter(x => x !== i) : [...prev.interests, i]
+            }))}
+            className={cn("px-4 py-2 rounded-full border-2 font-medium text-sm",
+              p.interests.includes(i) ? "bg-indigo-500 text-white border-indigo-500" : "bg-white text-gray-600 border-gray-200")}>
+            {i}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const canNext = isP
+    ? [p.role !== "", p.children.length > 0 && p.name.trim() !== "", p.parentGoals.length > 0, p.startDate && p.endDate, true]
+    : [p.role !== "", p.name.trim() !== "" && p.grade !== "", p.vibe !== "", p.startDate && p.endDate, true];
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-indigo-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl max-w-xl w-full p-8">
+        <div className="flex gap-2 mb-8">
+          {steps.map((_, i) => (
+            <div key={i} className={cn("h-1.5 flex-1 rounded-full", i <= step ? "bg-indigo-500" : "bg-gray-200")} />
+          ))}
+        </div>
+        {steps[step]}
+        <div className="flex justify-between mt-8">
+          {step > 0 ? (
+            <button onClick={() => setStep(s => s - 1)} className="flex items-center gap-2 px-5 py-2.5 text-gray-600 font-medium">
+              <ChevronLeft className="w-4 h-4" /> Back
+            </button>
+          ) : <div />}
+          <button
+            onClick={() => step < steps.length - 1 ? setStep(s => s + 1) : onComplete(p)}
+            disabled={!canNext[step]}
+            className={cn("flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium",
+              canNext[step] ? "bg-indigo-500 text-white hover:bg-indigo-600 shadow-md" : "bg-gray-200 text-gray-400 cursor-not-allowed")}>
+            {step < steps.length - 1 ? <>Next <ArrowRight className="w-4 h-4" /></> : <>Let's Go! <Rocket className="w-4 h-4" /></>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════
+   MAIN APP
+   ═══════════════════════════════════ */
+function App2({ profile }) {
+  const isP = profile.role === "parent";
+  const children = isP
+    ? profile.children
+    : [{ id: "self", name: profile.name, grade: profile.grade, vibe: profile.vibe }];
+  const [childId, setChildId] = useState(children[0]?.id);
+  const child = children.find(c => c.id === childId) || children[0];
+  const vibe = VIBES.find(v => v.id === child?.vibe) || VIBES[0];
+  const grad = vibe.gradient;
+
+  const [view, setView] = useState("dashboard");
+  const [sideOpen, setSideOpen] = useState(false);
+  const [calV, setCalV] = useState("month");
+  const [cMonth, setCMonth] = useState(4);
+  const [selDate, setSelDate] = useState(today());
+  const [weekRef, setWeekRef] = useState(new Date());
+
+  // Per-child state maps
+  const init = (def) => Object.fromEntries(children.map(c => [c.id, typeof def === "function" ? def() : def]));
+  const [aTask, setATask] = useState(() => init(() => []));
+  const [aEvt, setAEvt] = useState(() => init(() => []));
+  const [famEvt, setFamEvt] = useState([]);
+  const [aPts, setAPts] = useState(() => init(0));
+  const [aStrk, setAStrk] = useState(() => init(0));
+  const [aRew, setARew] = useState(() => init(() => [...DEF_REWARDS]));
+  const [aRedm, setARedm] = useState(() => init(() => []));
+  const [aCollect, setACollect] = useState(() => init(() => []));
+  const [aDrawEntries, setADrawEntries] = useState(() => init(() => []));
+  const [aDrawResults, setADrawResults] = useState(() => init(() => []));
+  const [aAvatar, setAAvatar] = useState(() => init(() => ({ body: "#F5D0A9", hair: "👦", eyes: "👀", mouth: "😊", accessory: "" })));
+  const [aJournal, setAJournal] = useState(() => init(() => []));
+  const [leaderboardOn, setLeaderboardOn] = useState(true);
+
+  // Weather – real forecast for today only (via Open-Meteo API)
+  const [todayWx, setTodayWx] = useState(null); // { locName, hi, lo, icon, label, indoor } or null
+  const [wxLoading, setWxLoading] = useState(true);
+
+  useEffect(() => {
+    if (!profile.zip) { setWxLoading(false); return; }
+    let cancelled = false;
+    (async () => {
+      setWxLoading(true);
+      const result = await fetchTodayWeather(profile.zip);
+      if (!cancelled) { setTodayWx(result); setWxLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [profile.zip]);
+
+  const tasks = aTask[childId] || [];
+  const evts = aEvt[childId] || [];
+  const pts = aPts[childId] || 0;
+  const strk = aStrk[childId] || 0;
+  const rews = aRew[childId] || DEF_REWARDS;
+  const rdmd = aRedm[childId] || [];
+  const collect = aCollect[childId] || [];
+  const drawEntries = aDrawEntries[childId] || [];
+  const drawResults = aDrawResults[childId] || [];
+
+  const sT = fn => setATask(prev => ({ ...prev, [childId]: typeof fn === "function" ? fn(prev[childId] || []) : fn }));
+  const sE = fn => setAEvt(prev => ({ ...prev, [childId]: typeof fn === "function" ? fn(prev[childId] || []) : fn }));
+  const sP = fn => setAPts(prev => ({ ...prev, [childId]: typeof fn === "function" ? fn(prev[childId] || 0) : fn }));
+  const sS = fn => setAStrk(prev => ({ ...prev, [childId]: typeof fn === "function" ? fn(prev[childId] || 0) : fn }));
+  const sR = fn => setARew(prev => ({ ...prev, [childId]: typeof fn === "function" ? fn(prev[childId] || DEF_REWARDS) : fn }));
+  const sD = fn => setARedm(prev => ({ ...prev, [childId]: typeof fn === "function" ? fn(prev[childId] || []) : fn }));
+  const sCollect = fn => setACollect(prev => ({ ...prev, [childId]: typeof fn === "function" ? fn(prev[childId] || []) : fn }));
+  const sDrawE = fn => setADrawEntries(prev => ({ ...prev, [childId]: typeof fn === "function" ? fn(prev[childId] || []) : fn }));
+  const sDrawR = fn => setADrawResults(prev => ({ ...prev, [childId]: typeof fn === "function" ? fn(prev[childId] || []) : fn }));
+  const sAvatar = fn => setAAvatar(prev => ({ ...prev, [childId]: typeof fn === "function" ? fn(prev[childId] || { body: "#F5D0A9", hair: "👦", eyes: "👀", mouth: "😊", accessory: "" }) : fn }));
+  const sJournal = fn => setAJournal(prev => ({ ...prev, [childId]: typeof fn === "function" ? fn(prev[childId] || []) : fn }));
+
+  const avatar = aAvatar[childId] || { body: "#F5D0A9", hair: "👦", eyes: "👀", mouth: "😊", accessory: "" };
+  const journal = aJournal[childId] || [];
+
+  const [confetti, setConfetti] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+
+  const addNotif = (title, message, icon, type) => {
+    const id = `n${Date.now()}`;
+    setNotifications(prev => [...prev, { id, title, message, icon, type }]);
+    setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== id)), 5000);
+  };
+  const dismissNotif = (id) => setNotifications(prev => prev.filter(n => n.id !== id));
+
+  const [mAddTask, setMAddTask] = useState(false);
+  const [mAddEvt, setMAddEvt] = useState(false);
+  const [mSugg, setMSugg] = useState(false);
+  const [mAddRew, setMAddRew] = useState(false);
+  const [mEditRew, setMEditRew] = useState(null);
+  const [mTmpl, setMTmpl] = useState(false);
+  const [mDraw, setMDraw] = useState(false);
+  const [nTask, setNTask] = useState({ title: "", cat: "academic", diff: "easy", date: "" });
+  const [nEvt, setNEvt] = useState({ title: "", date: "", time: "", rec: false, rDays: [], fam: false, mand: false });
+  const [nRew, setNRew] = useState({ name: "", cost: 100, icon: "🎁" });
+  const [dragId, setDragId] = useState(null);
+  const [drawWinner, setDrawWinner] = useState(null);
+
+  const [mJournal, setMJournal] = useState(false);
+  const [showRiddleAns, setShowRiddleAns] = useState(false);
+
+  const tier = useMemo(() => [...TIERS].reverse().find(t => pts >= t.min) || TIERS[0], [pts]);
+  const nxtTier = useMemo(() => TIERS.find(t => t.min > pts), [pts]);
+  const badges = useMemo(() => BADGES.filter(b => b.req(tasks, strk, pts)), [tasks, strk, pts]);
+  const summerStarted = new Date() >= new Date(profile.startDate);
+  const summerEnded = new Date() >= new Date(profile.endDate);
+  const dl = daysLeft(profile.endDate);
+  const daysUntil = daysLeft(profile.startDate);
+  const summerTotal = Math.max(1, Math.ceil((new Date(profile.endDate) - new Date(profile.startDate)) / 86400000));
+
+  const tForDate = (d) => tasks.filter(t => t.date === d);
+  const eForDate = (d) => [...evts.filter(e => e.date === d), ...famEvt.filter(e => e.date === d)];
+  const cToday = tasks.filter(t => t.done && t.date === today()).length;
+  const tToday = tasks.filter(t => t.date === today()).length;
+
+  // Check for newly completed weeks to add to draw entries
+  useEffect(() => {
+    const weekStart = getWeekStartDate(today());
+    const weekDates = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(weekStart);
+      d.setDate(d.getDate() + i);
+      return dk(d.getFullYear(), d.getMonth(), d.getDate());
+    });
+    const allTasksDone = weekDates.every(dd => {
+      const dayTasks = tasks.filter(t => t.date === dd);
+      return dayTasks.length > 0 && dayTasks.every(t => t.done);
+    });
+    if (allTasksDone && !drawEntries.includes(weekStart)) {
+      sDrawE(prev => [...prev, weekStart]);
+    }
+  }, [tasks, drawEntries]);
+
+  // Collectibles unlock check
+  useEffect(() => {
+    const newUnlocked = [];
+    COLLECTIBLES.forEach(c => {
+      if (!collect.includes(c.id)) {
+        if (c.requirement <= pts) {
+          newUnlocked.push(c.id);
+        }
+      }
+    });
+    if (newUnlocked.length > 0) {
+      setConfetti(true);
+      sCollect(prev => [...prev, ...newUnlocked]);
+    }
+  }, [pts, collect]);
+
+  // Morning reminder
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const todayTasks = (aTask[childId] || []).filter(t => t.date === today());
+      const undone = todayTasks.filter(t => !t.done).length;
+      if (undone > 0) {
+        addNotif("Good Morning!", `You have ${undone} task${undone > 1 ? "s" : ""} today. Let's go!`, "☀️", "reminder");
+      } else if (todayTasks.length === 0) {
+        addNotif("Good Morning!", "No tasks today — add some or enjoy a free day!", "🌴", "reminder");
+      }
+    }, 1500);
+    return () => clearTimeout(t);
+  }, []);
+
+  // ── Actions ──
+  const doComplete = (id) => {
+    sT(prev => prev.map(t => {
+      if (t.id !== id || t.done) return t;
+      const d = DIFFS.find(x => x.id === t.diff);
+      const mult = strk >= 7 ? 1.5 : strk >= 3 ? 1.2 : 1;
+      const earnedPoints = Math.round(d.points * mult);
+      sP(pp => pp + earnedPoints);
+      const newStreak = strk + 1;
+      sS(ss => ss + 1);
+      setConfetti(true);
+      addNotif("Task Complete!", `+${earnedPoints} points earned`, "✅", "reward");
+      if (newStreak === 3) addNotif("Streak Alert!", "3-day streak! Keep it going for bonus points", "🔥", "streak");
+      if (newStreak === 7) addNotif("Unstoppable!", "7-day streak! You're earning 1.5x points!", "⚡", "streak");
+      return { ...t, done: true };
+    }));
+  };
+  const doAddTask = () => {
+    if (!nTask.title.trim()) return;
+    sT(prev => [...prev, { id: `t${Date.now()}`, title: nTask.title, cat: nTask.cat, diff: nTask.diff, date: nTask.date, done: false }]);
+    setNTask({ title: "", cat: "academic", diff: "easy", date: selDate || "" });
+    setMAddTask(false);
+  };
+  const doSugg = (catId, s) => {
+    sT(prev => [...prev, { id: `t${Date.now()}${Math.random()}`, title: s.t, cat: catId, diff: s.d, date: today(), done: false }]);
+  };
+  const doDelTask = (id) => sT(prev => prev.filter(t => t.id !== id));
+  const doMoveTask = (id, newDate) => sT(prev => prev.map(t => t.id === id ? { ...t, date: newDate } : t));
+
+  const doRedeem = (r) => {
+    if (pts < r.cost) return;
+    sP(pp => pp - r.cost);
+    sD(prev => [...prev, { ...r, at: new Date().toISOString() }]);
+    setConfetti(true);
+    addNotif("Reward Unlocked!", `You redeemed: ${r.name}`, r.icon, "reward");
+  };
+  const doAddRew = () => {
+    if (!nRew.name.trim()) return;
+    sR(prev => [...prev, { ...nRew, id: `r${Date.now()}` }]);
+    setNRew({ name: "", cost: 100, icon: "🎁" });
+    setMAddRew(false);
+  };
+  const doDelRew = (id) => sR(prev => prev.filter(r => r.id !== id));
+
+  const doAddEvt = () => {
+    if (!nEvt.title.trim()) return;
+    const base = { title: nEvt.title, time: nEvt.time, mand: nEvt.mand };
+    if (nEvt.rec && nEvt.rDays.length > 0) {
+      const allDates = [];
+      nEvt.rDays.forEach(d => allDates.push(...expandRec(profile.startDate, profile.endDate, d)));
+      const newEvts = allDates.map((dd, i) => ({
+        id: `e${Date.now()}-${i}`, date: dd, ...base, rec: true,
+        recLabel: nEvt.rDays.map(d => DF[d].slice(0, 3)).join(", "),
+      }));
+      if (nEvt.fam) setFamEvt(prev => [...prev, ...newEvts]);
+      else sE(prev => [...prev, ...newEvts]);
+    } else if (nEvt.date) {
+      const evt = { id: `e${Date.now()}`, date: nEvt.date, ...base, rec: false };
+      if (nEvt.fam) setFamEvt(prev => [...prev, evt]);
+      else sE(prev => [...prev, evt]);
+    }
+    setNEvt({ title: "", date: "", time: "", rec: false, rDays: [], fam: false, mand: false });
+    setMAddEvt(false);
+  };
+  const doDelEvt = (id) => { sE(prev => prev.filter(e => e.id !== id)); setFamEvt(prev => prev.filter(e => e.id !== id)); };
+  const doDelRecGrp = (title) => { sE(prev => prev.filter(e => !(e.rec && e.title === title))); setFamEvt(prev => prev.filter(e => !(e.rec && e.title === title))); };
+
+  const applyTmpl = (tmpl) => {
+    const s = new Date(profile.startDate);
+    const e = new Date(profile.endDate);
+    const d = new Date(s);
+    const nt = [];
+    while (d <= e) {
+      const dow = d.getDay();
+      if (dow > 0 && dow < 6) {
+        tmpl.tasks.forEach((task, i) => {
+          nt.push({ id: `tp${d.getTime()}-${i}`, title: task.t, cat: task.cat, diff: task.d, date: dk(d.getFullYear(), d.getMonth(), d.getDate()), done: false });
+        });
+      }
+      d.setDate(d.getDate() + 1);
+    }
+    sT(prev => [...prev, ...nt]);
+    setMTmpl(false);
+    setConfetti(true);
+  };
+
+  const doLuckyDraw = () => {
+    if (drawEntries.length === 0) return;
+    const pickIdx = Math.floor(Math.random() * DEF_REWARDS.length);
+    const bonus = DEF_REWARDS[pickIdx];
+    setDrawWinner(bonus);
+    sDrawR(prev => [...prev, { ...bonus, drawDate: new Date().toISOString() }]);
+    setConfetti(true);
+  };
+
+  const weekDates = useMemo(() => weekDatesFor(weekRef), [weekRef]);
+  const catStats = useMemo(() => CATS.map(c => ({ name: c.label, value: tasks.filter(t => t.done && t.cat === c.id).length, fill: c.hex })).filter(c => c.value > 0), [tasks]);
+  const wkStats = useMemo(() => {
+    const now = new Date();
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(now);
+      d.setDate(d.getDate() - (6 - i));
+      const dd = dk(d.getFullYear(), d.getMonth(), d.getDate());
+      return { day: DS[d.getDay()], done: tasks.filter(t => t.done && t.date === dd).length, total: tasks.filter(t => t.date === dd).length };
+    });
+  }, [tasks]);
+
+  // Drag
+  const onDS = (e, id) => { setDragId(id); e.dataTransfer.effectAllowed = "move"; };
+  const onDO = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; };
+  const onDrop = (e, dd) => { e.preventDefault(); if (dragId) { doMoveTask(dragId, dd); setDragId(null); } };
+
+  // NAV
+  const NAV = [
+    { id: "dashboard", label: "Dashboard", Ic: Sun },
+    { id: "calendar", label: "Calendar", Ic: CalIcon },
+    { id: "tasks", label: "Tasks", Ic: CheckCircle2 },
+    { id: "rewards", label: "Rewards", Ic: Gift },
+    { id: "collectibles", label: "Collectibles", Ic: Sparkles },
+    { id: "progress", label: "Progress", Ic: BarChart3 },
+    { id: "avatar", label: "Avatar", Ic: UserPlus },
+    { id: "journal", label: "Journal", Ic: BookOpen },
+    { id: "trophy", label: "Trophy", Ic: Trophy },
+  ];
+  if (isP) NAV.push({ id: "family", label: "Family", Ic: Users });
+
+  // ── TaskItem ──
+  const TI = ({ t: task, compact }) => {
+    const cat = CATS.find(c => c.id === task.cat);
+    const diff = DIFFS.find(d => d.id === task.diff);
+    return (
+      <div draggable onDragStart={e => onDS(e, task.id)}
+        className={cn("flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 group", compact && "py-1")}>
+        <GripVertical className="w-3 h-3 text-gray-300 opacity-0 group-hover:opacity-100 cursor-grab flex-shrink-0" />
+        <button onClick={() => !task.done && doComplete(task.id)}
+          className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0",
+            task.done ? "bg-green-500 border-green-500" : `${cat?.border} hover:border-green-400`)}>
+          {task.done && <Check className="w-3 h-3 text-white" />}
+        </button>
+        <div className="flex-1 min-w-0">
+          <div className={cn("text-sm truncate", task.done && "line-through text-gray-400", compact && "text-xs")}>{task.title}</div>
+          {!compact && (
+            <div className="flex gap-1 mt-0.5">
+              <span className={cn("text-[10px] px-1 py-0.5 rounded", cat?.light, cat?.text)}>{cat?.label}</span>
+              <span className={cn("text-[10px] px-1 py-0.5 rounded", diff?.bg, diff?.color)}>+{diff?.points}</span>
+            </div>
+          )}
+        </div>
+        {!task.done && (
+          <button onClick={() => doDelTask(task.id)}
+            className="p-0.5 opacity-0 group-hover:opacity-100 hover:bg-red-50 rounded text-gray-300 hover:text-red-400">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  /* ── VIEWS ── */
+
+  // DASHBOARD
+  const Dashboard = () => {
+    return (
+      <div className="space-y-4">
+        <div className={cn("rounded-xl p-3 bg-gradient-to-r text-white flex items-center gap-3", grad)}>
+          <Timer className="w-7 h-7 text-white/80" />
+          {!summerStarted ? (
+            <>
+              <div>
+                <div className="text-2xl font-bold">{daysUntil}</div>
+                <div className="text-white/70 text-xs">days until summer starts!</div>
+              </div>
+              <div className="ml-auto text-right">
+                <div className="text-sm font-medium">🏖️</div>
+                <div className="text-white/70 text-xs">{fmtDate(profile.startDate).replace(/,\s*$/, "")}</div>
+              </div>
+            </>
+          ) : summerEnded ? (
+            <>
+              <div>
+                <div className="text-2xl font-bold">Summer's over!</div>
+                <div className="text-white/70 text-xs">Great job this summer</div>
+              </div>
+              <div className="ml-auto text-right">
+                <div className="text-sm font-medium">100%</div>
+                <div className="text-white/70 text-xs">complete</div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <div className="text-2xl font-bold">{dl}</div>
+                <div className="text-white/70 text-xs">days of summer left</div>
+              </div>
+              <div className="ml-auto text-right">
+                <div className="text-sm font-medium">{Math.round((1 - dl / summerTotal) * 100)}%</div>
+                <div className="text-white/70 text-xs">complete</div>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className={cn("rounded-2xl p-5 bg-gradient-to-r text-white", grad)}>
+          <div className="flex items-center justify-between">
+            <div>
+              <div>
+                <h1 className="text-xl font-bold">Hey, {child.name}!</h1>
+                <p className="text-white/80 text-sm mt-0.5">
+                  {cToday === 0 && tToday === 0 ? "Add tasks to get started!" :
+                    cToday === tToday && tToday > 0 ? "All done today!" :
+                      `${cToday}/${tToday} tasks done`}
+                </p>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-2xl font-bold">{pts}</div>
+              <div className="text-white/80 text-xs">points</div>
+            </div>
+          </div>
+          {strk > 0 && (
+            <div className="flex items-center gap-1.5 mt-2 bg-white/20 rounded-lg px-2.5 py-1 w-fit text-sm">
+              <Flame className="w-3.5 h-3.5" />{strk} day streak!
+            </div>
+          )}
+        </div>
+
+        {(() => {
+          const chapters = STORY_CHAPTERS[child.vibe] || STORY_CHAPTERS.space;
+          const currentChapter = [...chapters].reverse().find(c => pts >= c.milestone) || chapters[0];
+          const currentIdx = chapters.findIndex(c => c.id === currentChapter.id || (c.title === currentChapter.title && c.milestone === currentChapter.milestone));
+          const unlockedCount = chapters.filter(c => pts >= c.milestone).length;
+          const nextChapter = chapters[currentIdx + 1];
+          const progressToNext = nextChapter ? Math.min(100, ((pts - currentChapter.milestone) / (nextChapter.milestone - currentChapter.milestone)) * 100) : 100;
+          return (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+              <h3 className="font-bold text-gray-800 text-sm mb-2">Story Progress</h3>
+              <div className="mb-3">
+                <div className="text-base font-semibold text-indigo-600">{currentChapter.title}</div>
+                <div className="text-xs text-gray-600">{currentChapter.desc}</div>
+              </div>
+              {nextChapter && (
+                <div className="mb-2">
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className={cn("h-full rounded-full bg-gradient-to-r", grad)} style={{ width: `${progressToNext}%` }} />
+                  </div>
+                </div>
+              )}
+              <div className="text-xs text-gray-500">{unlockedCount} of {chapters.length} chapters unlocked</div>
+            </div>
+          );
+        })()}
+
+        {(() => {
+          const hashDate = (d) => {
+            const [y, m, day] = d.split("-").map(Number);
+            return (y * 367 + m * 31 + day) % FUN_FACTS.length;
+          };
+          const todayFact = FUN_FACTS[hashDate(today())];
+          return (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl flex-shrink-0">💡</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-bold text-indigo-600 mb-1 uppercase">{todayFact.type === "riddle" ? "Riddle of the Day" : "Did You Know?"}</div>
+                  <p className="text-sm text-gray-700">{todayFact.text}</p>
+                  {todayFact.type === "riddle" && (
+                    <button onClick={() => setShowRiddleAns(!showRiddleAns)}
+                      className="mt-2 text-xs text-indigo-600 font-medium hover:underline">
+                      {showRiddleAns ? "Hide Answer" : "Show Answer"}
+                    </button>
+                  )}
+                  {todayFact.type === "riddle" && showRiddleAns && (
+                    <div className="mt-2 p-2 bg-indigo-50 rounded text-sm text-indigo-700 font-medium">
+                      {todayFact.answer}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-white rounded-xl p-3 border border-gray-100 shadow-sm text-center">
+            <div className="text-xl font-bold text-indigo-600">{tasks.filter(t => t.done).length}</div>
+            <div className="text-[10px] text-gray-500">Tasks Done</div>
+          </div>
+          <div className="bg-white rounded-xl p-3 border border-gray-100 shadow-sm text-center">
+            <div className="text-base font-bold text-amber-600">{tier.icon} {tier.name}</div>
+            <div className="text-[10px] text-gray-500">Tier</div>
+          </div>
+          <div className="bg-white rounded-xl p-3 border border-gray-100 shadow-sm text-center">
+            <div className="text-xl font-bold text-green-600">{badges.length}</div>
+            <div className="text-[10px] text-gray-500">Badges</div>
+          </div>
+        </div>
+
+        {nxtTier && (
+          <div className="bg-white rounded-xl p-3 border border-gray-100 shadow-sm">
+            <div className="flex justify-between text-xs mb-1.5">
+              <span className="text-gray-600">To {nxtTier.icon} {nxtTier.name}</span>
+              <span className="font-medium">{pts}/{nxtTier.min}</span>
+            </div>
+            <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+              <div className={cn("h-full rounded-full bg-gradient-to-r", grad)}
+                style={{ width: `${Math.min(100, (pts / nxtTier.min) * 100)}%` }} />
+            </div>
+          </div>
+        )}
+
+        {/* Today's weather – live API only, no simulation */}
+        {wxLoading ? (
+          <div className="flex items-center gap-3 bg-sky-50 rounded-xl p-3 border border-sky-100">
+            <Loader2 className="w-5 h-5 text-sky-400 animate-spin" />
+            <span className="text-sm text-sky-600">Fetching today's weather for {profile.zip}...</span>
+          </div>
+        ) : todayWx ? (
+          <div className="flex items-center gap-3 bg-sky-50 rounded-xl p-3 border border-sky-100">
+            <span className="text-2xl">{todayWx.icon}</span>
+            <div>
+              <div className="text-sm font-semibold text-sky-800">{todayWx.label} · {todayWx.locName}</div>
+              <div className="text-xs text-sky-600">{todayWx.hi}° / {todayWx.lo}°F</div>
+            </div>
+            {todayWx.indoor && (
+              <span className="ml-auto text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-lg font-medium">Indoor day!</span>
+            )}
+          </div>
+        ) : null}
+
+        <button onClick={() => setMTmpl(true)}
+          className="w-full flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-100 shadow-sm hover:bg-gray-50 text-left">
+          <Package className="w-5 h-5 text-indigo-500" />
+          <div>
+            <div className="text-sm font-medium text-gray-800">Schedule Templates</div>
+            <div className="text-xs text-gray-400">One-click summer schedules</div>
+          </div>
+          <ArrowRight className="w-4 h-4 text-gray-300 ml-auto" />
+        </button>
+
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+          <div className="p-3 border-b border-gray-50 flex justify-between items-center">
+            <h3 className="font-bold text-gray-800 text-sm">Today's Tasks</h3>
+            <button onClick={() => { setSelDate(today()); setNTask(t => ({ ...t, date: today() })); setMAddTask(true); }}
+              className="flex items-center gap-1 text-xs text-indigo-600 font-medium">
+              <Plus className="w-3.5 h-3.5" /> Add
+            </button>
+          </div>
+          {tasks.filter(t => t.date === today()).length === 0 ? (
+            <div className="p-5 text-center text-gray-400">
+              <Sun className="w-7 h-7 mx-auto mb-1.5 text-amber-300" />
+              <p className="text-xs">No tasks today!</p>
+              <button onClick={() => setMSugg(true)} className="text-xs text-indigo-600 font-medium mt-1 hover:underline">
+                Get suggestions
+              </button>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              {tasks.filter(t => t.date === today()).map(t => <TI key={t.id} t={t} />)}
+            </div>
+          )}
+        </div>
+
+        {badges.length > 0 && (
+          <div className="bg-white rounded-xl p-3 border border-gray-100 shadow-sm">
+            <h3 className="font-bold text-gray-800 text-sm mb-2">Badges</h3>
+            <div className="flex flex-wrap gap-2">
+              {badges.map(b => (
+                <div key={b.id} className="flex items-center gap-1.5 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200">
+                  <span className="text-base">{b.icon}</span>
+                  <span className="text-[10px] font-medium text-amber-800">{b.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // CALENDAR
+  const CalendarV = () => {
+    const VToggle = () => (
+      <div className="flex bg-gray-100 rounded-lg p-0.5">
+        {[
+          { id: "month", Ic: LayoutGrid, label: "Month" },
+          { id: "week", Ic: Columns, label: "Week" },
+          { id: "day", Ic: List, label: "Day" },
+        ].map(v => (
+          <button key={v.id} onClick={() => setCalV(v.id)}
+            className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium",
+              calV === v.id ? "bg-white shadow-sm text-gray-800" : "text-gray-500 hover:text-gray-700")}>
+            <v.Ic className="w-3.5 h-3.5" />{v.label}
+          </button>
+        ))}
+      </div>
+    );
+
+    const MGrid = () => {
+      const days = getDIM(cMonth, YEAR);
+      const first = getFDOW(cMonth, YEAR);
+      const cells = [];
+      for (let i = 0; i < first; i++) cells.push(null);
+      for (let d = 1; d <= days; d++) cells.push(d);
+      return (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <button onClick={() => setCMonth(m => Math.max(4, m - 1))} className="p-1.5 hover:bg-gray-100 rounded-lg" disabled={cMonth <= 4}>
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <h3 className="text-lg font-bold text-gray-800">{["May","June","July","August"][cMonth - 4]} {YEAR}</h3>
+            <button onClick={() => setCMonth(m => Math.min(7, m + 1))} className="p-1.5 hover:bg-gray-100 rounded-lg" disabled={cMonth >= 7}>
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {DS.map(d => <div key={d} className="text-center text-xs font-medium text-gray-400 py-1.5">{d}</div>)}
+            {cells.map((day, i) => {
+              if (!day) return <div key={`e${i}`} />;
+              const dd = dk(YEAR, cMonth, day);
+              const dt = tForDate(dd);
+              const de = eForDate(dd);
+              const isT = dd === today();
+              return (
+                <div key={dd}
+                  onClick={() => { setSelDate(dd); setCalV("day"); }}
+                  onDragOver={onDO} onDrop={e => onDrop(e, dd)}
+                  className={cn("p-1 rounded-lg text-xs min-h-[60px] flex flex-col border cursor-pointer transition-all",
+                    isT ? "bg-indigo-50 border-indigo-300" : "border-transparent hover:bg-gray-50",
+                    dragId && "hover:bg-blue-50 hover:border-blue-300")}>
+                  <div className="flex justify-between items-center">
+                    <span className={cn(isT ? "text-indigo-600 font-bold" : "text-gray-700")}>{day}</span>
+                  </div>
+                  {(dt.length > 0 || de.length > 0) && (
+                    <div className="flex gap-0.5 mt-0.5 flex-wrap">
+                      {dt.slice(0, 3).map(t => {
+                        const c = CATS.find(x => x.id === t.cat);
+                        return <div key={t.id} className={cn("w-1.5 h-1.5 rounded-full", t.done ? "bg-green-400" : c?.color)} />;
+                      })}
+                      {de.length > 0 && <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    };
+
+    const WGrid = () => {
+      const nextW = () => { const d = new Date(weekRef); d.setDate(d.getDate() + 7); setWeekRef(d); };
+      const prevW = () => { const d = new Date(weekRef); d.setDate(d.getDate() - 7); setWeekRef(d); };
+      return (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <button onClick={prevW} className="p-1.5 hover:bg-gray-100 rounded-lg"><ChevronLeft className="w-5 h-5" /></button>
+            <h3 className="text-base font-bold text-gray-800">{fmtDate(weekDates[0])} — {fmtDate(weekDates[6])}</h3>
+            <button onClick={nextW} className="p-1.5 hover:bg-gray-100 rounded-lg"><ChevronRight className="w-5 h-5" /></button>
+          </div>
+          <div className="grid grid-cols-7 gap-1.5">
+            {weekDates.map((dd, i) => {
+              const dt = tForDate(dd);
+              const de = eForDate(dd);
+              const isT = dd === today();
+              const d = parsedk(dd);
+              return (
+                <div key={dd}
+                  onClick={() => { setSelDate(dd); setCalV("day"); }}
+                  onDragOver={onDO} onDrop={e => onDrop(e, dd)}
+                  className={cn("rounded-xl border p-2 min-h-[170px] flex flex-col cursor-pointer transition-all",
+                    isT ? "bg-indigo-50 border-indigo-200" : "border-gray-100 hover:border-gray-200 bg-white",
+                    dragId && "hover:bg-blue-50 hover:border-blue-300")}>
+                  <div className="text-center mb-1">
+                    <div className="text-[10px] text-gray-400">{DS[i]}</div>
+                    <div className={cn("text-sm font-bold", isT ? "text-indigo-600" : "text-gray-700")}>{d.getDate()}</div>
+                  </div>
+                  <div className="flex-1 space-y-0.5 overflow-auto">
+                    {de.map(e => (
+                      <div key={e.id} className={cn("text-[10px] px-1.5 py-0.5 rounded truncate",
+                        e.mand ? "bg-red-50 text-red-700 font-medium" : "bg-amber-50 text-amber-700")}>
+                        {e.mand && "★ "}{e.title}
+                      </div>
+                    ))}
+                    {dt.slice(0, 4).map(t => {
+                      const c = CATS.find(x => x.id === t.cat);
+                      return (
+                        <div key={t.id} draggable onDragStart={e => onDS(e, t.id)}
+                          className={cn("text-[10px] px-1.5 py-0.5 rounded truncate cursor-grab",
+                            t.done ? "bg-green-50 text-green-600 line-through" : `${c?.light} ${c?.text}`)}>
+                          {t.title}
+                        </div>
+                      );
+                    })}
+                    {dt.length > 4 && <div className="text-[9px] text-gray-400 text-center">+{dt.length - 4} more</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    };
+
+    const DayV = () => {
+      const dt = tForDate(selDate);
+      const de = eForDate(selDate);
+      const prev = () => { const d = parsedk(selDate); d.setDate(d.getDate() - 1); setSelDate(dk(d.getFullYear(), d.getMonth(), d.getDate())); };
+      const next = () => { const d = parsedk(selDate); d.setDate(d.getDate() + 1); setSelDate(dk(d.getFullYear(), d.getMonth(), d.getDate())); };
+      return (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <button onClick={prev} className="p-1.5 hover:bg-gray-100 rounded-lg"><ChevronLeft className="w-5 h-5" /></button>
+            <h3 className="text-base font-bold text-gray-800">{fmtDate(selDate)}</h3>
+            <button onClick={next} className="p-1.5 hover:bg-gray-100 rounded-lg"><ChevronRight className="w-5 h-5" /></button>
+          </div>
+          {de.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-100 p-3">
+              <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Events</h4>
+              {de.map(e => (
+                <div key={e.id} className="flex items-center gap-2 py-1.5">
+                  {e.mand ? <Flag className="w-3.5 h-3.5 text-red-500 flex-shrink-0" /> : <div className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />}
+                  <span className="text-sm text-gray-700 flex-1">{e.title}</span>
+                  {e.time && <span className="text-xs text-gray-400">{e.time}</span>}
+                  {e.rec && <Repeat className="w-3 h-3 text-gray-300" />}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="bg-white rounded-xl border border-gray-100 p-3" onDragOver={onDO} onDrop={e => onDrop(e, selDate)}>
+            <div className="flex justify-between items-center mb-2">
+              <h4 className="text-xs font-semibold text-gray-500 uppercase">Tasks ({dt.filter(t => t.done).length}/{dt.length})</h4>
+              <button onClick={() => { setNTask(t => ({ ...t, date: selDate })); setMAddTask(true); }}
+                className="text-xs text-indigo-600 font-medium flex items-center gap-1"><Plus className="w-3 h-3" />Add</button>
+            </div>
+            {dt.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-3">No tasks — drag here or add one!</p>
+            ) : (
+              dt.map(t => <TI key={t.id} t={t} />)
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center gap-2 flex-wrap">
+          <h2 className="text-xl font-bold text-gray-800">Calendar</h2>
+          <div className="flex items-center gap-2">
+            <VToggle />
+            <button onClick={() => setMAddEvt(true)}
+              className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-sm font-medium bg-gradient-to-r", grad)}>
+              <Plus className="w-4 h-4" />Event
+            </button>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          {calV === "month" && <MGrid />}
+          {calV === "week" && <WGrid />}
+          {calV === "day" && <DayV />}
+        </div>
+      </div>
+    );
+  };
+
+  // TASKS
+  const TasksV = () => (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold text-gray-800">
+          Tasks {selDate && <span className="text-sm font-normal text-gray-400 ml-1">{fmtDate(selDate)}</span>}
+        </h2>
+        <div className="flex gap-2">
+          <button onClick={() => setMTmpl(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-gray-600 border border-gray-200 text-xs font-medium hover:bg-gray-50"><Package className="w-3.5 h-3.5" />Templates</button>
+          <button onClick={() => setMSugg(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-indigo-600 border border-indigo-200 text-xs font-medium hover:bg-indigo-50"><Sparkles className="w-3.5 h-3.5" />Suggest</button>
+          <button onClick={() => { setNTask(t => ({ ...t, date: selDate || today() })); setMAddTask(true); }} className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-xs font-medium bg-gradient-to-r", grad)}><Plus className="w-3.5 h-3.5" />Add</button>
+        </div>
+      </div>
+      {CATS.map(cat => {
+        const ct = selDate ? tasks.filter(t => t.cat === cat.id && t.date === selDate) : tasks.filter(t => t.cat === cat.id);
+        if (!ct.length) return null;
+        return (
+          <div key={cat.id} className="bg-white rounded-xl border border-gray-100 shadow-sm">
+            <div className="flex items-center gap-2 p-3 border-b border-gray-50">
+              <cat.icon className={cn("w-4 h-4", cat.text)} />
+              <span className="font-semibold text-sm text-gray-800">{cat.label}</span>
+              <span className="text-xs text-gray-400 ml-auto">{ct.filter(t => t.done).length}/{ct.length}</span>
+            </div>
+            <div className="divide-y divide-gray-50">{ct.map(t => <TI key={t.id} t={t} />)}</div>
+          </div>
+        );
+      })}
+      {tasks.length === 0 && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-8 text-center">
+          <Target className="w-10 h-10 mx-auto text-gray-300 mb-3" />
+          <p className="text-gray-500 text-sm">No tasks yet!</p>
+        </div>
+      )}
+      {selDate && <button onClick={() => setSelDate(null)} className="text-xs text-indigo-600 hover:underline">Show all tasks</button>}
+    </div>
+  );
+
+  // REWARDS
+  const RewardsV = () => (
+    <div className="space-y-5">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold text-gray-800">Reward Shop</h2>
+        <div className="flex gap-2 items-center">
+          <div className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r text-white font-bold text-sm", grad)}>
+            <Star className="w-4 h-4" />{pts} pts
+          </div>
+          {isP && <button onClick={() => setMAddRew(true)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-600"><Plus className="w-3.5 h-3.5" />Custom</button>}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {rews.map(r => (
+          <div key={r.id} className={cn("bg-white rounded-xl border shadow-sm p-4 flex flex-col items-center text-center relative", pts >= r.cost ? "border-gray-100" : "border-gray-100 opacity-60")}>
+            {isP && (
+              <button onClick={() => doDelRew(r.id)} className="absolute top-1.5 right-1.5 p-1 hover:bg-red-50 rounded text-gray-300 hover:text-red-400">
+                <Trash2 className="w-3 h-3" />
+              </button>
+            )}
+            <span className="text-3xl mb-1.5">{r.icon}</span>
+            <span className="font-medium text-sm text-gray-800">{r.name}</span>
+            <span className={cn("text-xs mt-1 font-bold", pts >= r.cost ? "text-amber-600" : "text-gray-400")}>{r.cost} pts</span>
+            <button onClick={() => doRedeem(r)} disabled={pts < r.cost}
+              className={cn("mt-2.5 px-4 py-1.5 rounded-lg text-sm font-medium w-full",
+                pts >= r.cost ? "bg-amber-500 text-white hover:bg-amber-600" : "bg-gray-100 text-gray-400 cursor-not-allowed")}>
+              {pts >= r.cost ? "Redeem" : `Need ${r.cost - pts} more`}
+            </button>
+          </div>
+        ))}
+      </div>
+      {drawEntries.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="font-bold text-gray-800 text-sm">Weekly Lucky Draw</h3>
+            <button onClick={() => setMDraw(true)} className="text-xs font-medium text-indigo-600 hover:underline">View</button>
+          </div>
+          <p className="text-xs text-gray-500 mb-2">{drawEntries.length} week(s) of all tasks completed!</p>
+          <button onClick={doLuckyDraw}
+            className={cn("w-full px-4 py-2 rounded-lg text-sm font-medium text-white bg-gradient-to-r", grad)}>
+            <Ticket className="w-4 h-4 inline mr-1" />Try Your Luck
+          </button>
+        </div>
+      )}
+      {rdmd.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <h3 className="font-bold text-gray-800 mb-2 text-sm">Redeemed</h3>
+          <div className="space-y-1.5">
+            {rdmd.map((r, i) => (
+              <div key={i} className="flex items-center gap-2 p-2 bg-green-50 rounded-lg">
+                <span className="text-lg">{r.icon}</span>
+                <span className="text-sm font-medium text-green-800">{r.name}</span>
+                <Check className="w-4 h-4 text-green-500 ml-auto" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // COLLECTIBLES
+  const CollectiblesV = () => (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold text-gray-800">Collectibles</h2>
+        <span className={cn("text-sm font-bold px-3 py-1 rounded-full text-white bg-gradient-to-r", grad)}>{collect.length}/{COLLECTIBLES.length}</span>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        {COLLECTIBLES.map(c => {
+          const isUnlocked = collect.includes(c.id);
+          const progress = Math.min(100, (pts / c.requirement) * 100);
+          return (
+            <div key={c.id} className={cn("rounded-xl border p-4 text-center transition-all", isUnlocked ? "bg-white border-indigo-200 shadow-md" : "bg-gray-50 border-gray-200 opacity-60")}>
+              {!isUnlocked && <div className="absolute top-2 right-2"><Lock className="w-4 h-4 text-gray-400" /></div>}
+              <div className="text-4xl mb-2">{c.icon}</div>
+              <div className="text-sm font-semibold text-gray-800 mb-1">{c.name}</div>
+              <div className="text-xs text-gray-500 mb-2">{c.desc}</div>
+              {isUnlocked ? (
+                <div className="text-xs font-bold text-green-600">Unlocked!</div>
+              ) : (
+                <div className="space-y-1">
+                  <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-amber-400 to-amber-500 rounded-full" style={{ width: `${progress}%` }} />
+                  </div>
+                  <div className="text-xs text-gray-500">{pts}/{c.requirement} pts</div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // PROGRESS
+  const ProgressV = () => (
+    <div className="space-y-5">
+      <h2 className="text-xl font-bold text-gray-800">Progress</h2>
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+        <h3 className="font-bold text-gray-800 mb-3 text-sm">This Week</h3>
+        <div className="h-40">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={wkStats}>
+              <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+              <Tooltip />
+              <Bar dataKey="done" fill="#6366f1" radius={[4, 4, 0, 0]} name="Done" />
+              <Bar dataKey="total" fill="#e0e7ff" radius={[4, 4, 0, 0]} name="Total" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      {catStats.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <h3 className="font-bold text-gray-800 mb-3 text-sm">By Category</h3>
+          <div className="h-40">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={catStats} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60} label>
+                  {catStats.map((e, i) => <Cell key={i} fill={e.fill} />)}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+        <h3 className="font-bold text-gray-800 mb-3 text-sm">All Badges</h3>
+        <div className="grid grid-cols-2 gap-2">
+          {BADGES.map(b => {
+            const e = badges.find(x => x.id === b.id);
+            return (
+              <div key={b.id} className={cn("flex items-center gap-2 p-2 rounded-lg border",
+                e ? "bg-amber-50 border-amber-200" : "bg-gray-50 border-gray-200 opacity-40")}>
+                <span className="text-lg">{b.icon}</span>
+                <div>
+                  <div className="text-xs font-medium">{b.name}</div>
+                  <div className="text-[10px] text-gray-500">{b.desc}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+
+  // TROPHY
+  const TrophyV = () => {
+    const topCat = useMemo(() => {
+      const counts = {};
+      tasks.filter(t => t.done).forEach(t => {
+        counts[t.cat] = (counts[t.cat] || 0) + 1;
+      });
+      let top = null, max = 0;
+      Object.entries(counts).forEach(([cat, cnt]) => {
+        if (cnt > max) { max = cnt; top = cat; }
+      });
+      return top ? CATS.find(c => c.id === top) : null;
+    }, [tasks]);
+
+    return (
+      <div className="space-y-4">
+        <h2 className="text-xl font-bold text-gray-800">End-of-Summer Trophy</h2>
+        <div className={cn("rounded-2xl bg-gradient-to-br text-white p-8 text-center shadow-lg", grad)}>
+          <div className="text-6xl mb-4">🏆</div>
+          <h3 className="text-2xl font-bold mb-1">{child.name}</h3>
+          <p className="text-white/80 text-sm mb-4">{fmtDate(profile.startDate)} — {fmtDate(profile.endDate)}</p>
+
+          <div className="bg-white/10 rounded-xl p-4 mb-6 space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-white/80">Tasks Completed:</span>
+              <span className="font-bold text-lg">{tasks.filter(t => t.done).length}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-white/80">Points Earned:</span>
+              <span className="font-bold text-lg">{pts}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-white/80">Tier Achieved:</span>
+              <span className="font-bold text-lg">{tier.icon} {tier.name}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-white/80">Badges Earned:</span>
+              <span className="font-bold text-lg">{badges.length}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-white/80">Collectibles Unlocked:</span>
+              <span className="font-bold text-lg">{collect.length}</span>
+            </div>
+            {topCat && (
+              <div className="flex justify-between text-sm">
+                <span className="text-white/80">Top Category:</span>
+                <span className="font-bold text-lg">{topCat.label}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="text-center space-y-2 mb-6">
+            <p className="text-white/90 font-semibold italic">You worked hard, had fun, and accomplished amazing things!</p>
+            <p className="text-white/70 text-sm">This summer, you showed dedication, creativity, and strength.</p>
+          </div>
+
+          <button onClick={() => window.print()}
+            className="w-full bg-white text-indigo-700 font-bold py-2.5 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2">
+            <Star className="w-5 h-5" />Print or Share
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // FAMILY
+  const FamilyV = () => (
+    <div className="space-y-5">
+      <h2 className="text-xl font-bold text-gray-800">Family Dashboard</h2>
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center justify-between">
+        <div>
+          <h3 className="font-bold text-gray-800 text-sm">Sibling Leaderboard</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Friendly competition and encouragement</p>
+        </div>
+        <button onClick={() => setLeaderboardOn(!leaderboardOn)}
+          className={cn("w-10 h-6 rounded-full transition-all flex items-center", leaderboardOn ? "bg-indigo-500" : "bg-gray-300")}>
+          <div className={cn("w-4 h-4 rounded-full bg-white transition-all", leaderboardOn ? "ml-5" : "ml-1")} />
+        </button>
+      </div>
+
+      {leaderboardOn && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="divide-y divide-gray-50">
+            {children
+              .map(ch => {
+                const cp = aPts[ch.id] || 0;
+                const cs = aStrk[ch.id] || 0;
+                const cd = (aTask[ch.id] || []).filter(t => t.done).length;
+                return { ch, cp, cs, cd };
+              })
+              .sort((a, b) => b.cp - a.cp)
+              .map((item, rank) => {
+                const cv = VIBES.find(v => v.id === item.ch.vibe) || VIBES[0];
+                const medal = ["🥇", "🥈", "🥉"][rank] || "•";
+                return (
+                  <div key={item.ch.id} className={cn("p-4 flex items-center gap-3", rank === 0 ? "bg-amber-50" : "")}>
+                    <div className="text-2xl">{medal}</div>
+                    <div className={cn("w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold bg-gradient-to-br", cv.gradient)}>
+                      {item.ch.name[0]?.toUpperCase()}
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-semibold text-gray-800 text-sm">{item.ch.name}</div>
+                      <div className="text-xs text-gray-500">{item.cd} tasks · {item.cs} streak</div>
+                    </div>
+                    <div className={cn("text-right font-bold", rank === 0 ? "text-amber-600" : "text-indigo-600")}>
+                      {item.cp} pts
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
+      {profile.parentGoals.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <h3 className="font-bold text-gray-800 mb-2 text-sm">Summer Priorities</h3>
+          <div className="space-y-1.5">
+            {profile.parentGoals.map(gid => {
+              const g = PGOALS.find(x => x.id === gid);
+              const pri = profile.goalPri[gid] || 3;
+              return g ? (
+                <div key={gid} className="flex items-center gap-3 p-2 rounded-lg bg-amber-50">
+                  <span className="text-lg">{g.icon}</span>
+                  <span className="text-sm font-medium text-gray-700 flex-1">{g.label}</span>
+                  <div className="flex gap-0.5">
+                    {Array.from({ length: 5 }, (_, i) => (
+                      <div key={i} className={cn("w-2 h-2 rounded-full", i < pri ? "bg-amber-500" : "bg-amber-200")} />
+                    ))}
+                  </div>
+                </div>
+              ) : null;
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+        <div className="flex justify-between items-center mb-2">
+          <h3 className="font-bold text-gray-800 text-sm">Family Events</h3>
+          <button onClick={() => { setNEvt(e => ({ ...e, fam: true, mand: true })); setMAddEvt(true); }}
+            className="text-xs text-indigo-600 font-medium flex items-center gap-1"><Plus className="w-3 h-3" />Add</button>
+        </div>
+        {famEvt.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-3">No family events yet.</p>
+        ) : (() => {
+          const seen = new Set();
+          return famEvt.sort((a, b) => a.date.localeCompare(b.date)).filter(e => {
+            if (e.rec) { if (seen.has(e.title)) return false; seen.add(e.title); return true; }
+            return true;
+          }).slice(0, 15).map(e => (
+            <div key={e.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50">
+              <Flag className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">{e.title}</div>
+                <div className="text-xs text-gray-400">{e.rec ? `Every ${e.recLabel}` : fmtDate(e.date)} {e.time && `at ${e.time}`}</div>
+              </div>
+              <button onClick={() => e.rec ? doDelRecGrp(e.title) : doDelEvt(e.id)}
+                className="p-1 hover:bg-red-50 rounded text-gray-300 hover:text-red-400"><Trash2 className="w-3 h-3" /></button>
+            </div>
+          ));
+        })()}
+      </div>
+
+      {children.map(ch => {
+        const cv = VIBES.find(v => v.id === ch.vibe) || VIBES[0];
+        const ct = aTask[ch.id] || [];
+        const cp = aPts[ch.id] || 0;
+        const cs = aStrk[ch.id] || 0;
+        const cTier = [...TIERS].reverse().find(t => cp >= t.min) || TIERS[0];
+        return (
+          <div key={ch.id} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className={cn("p-3 bg-gradient-to-r text-white flex items-center gap-3", cv.gradient)}>
+              <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center text-base font-bold">{ch.name[0]?.toUpperCase()}</div>
+              <div className="flex-1">
+                <div className="font-bold text-sm">{ch.name}</div>
+                <div className="text-white/70 text-[11px]">{ch.grade} grade · {cv.emoji}</div>
+              </div>
+              <button onClick={() => { setChildId(ch.id); setView("dashboard"); }}
+                className="px-2.5 py-1 bg-white/20 rounded-lg text-xs font-medium hover:bg-white/30">View</button>
+            </div>
+            <div className="grid grid-cols-4 gap-2 p-3 text-center">
+              <div><div className="text-base font-bold text-indigo-600">{ct.filter(t => t.done).length}</div><div className="text-[9px] text-gray-400">Done</div></div>
+              <div><div className="text-base font-bold text-amber-600">{cp}</div><div className="text-[9px] text-gray-400">Pts</div></div>
+              <div><div className="text-base font-bold text-orange-500">{cs}</div><div className="text-[9px] text-gray-400">Streak</div></div>
+              <div><div className="text-base font-bold">{cTier.icon}</div><div className="text-[9px] text-gray-400">{cTier.name}</div></div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  // AVATAR BUILDER
+  const AvatarV = () => (
+    <div className="space-y-4">
+      <h2 className="text-xl font-bold text-gray-800">Avatar Gallery</h2>
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
+        <div className={cn("w-24 h-24 rounded-full mx-auto mb-5 flex items-center justify-center bg-gradient-to-br", grad)}>
+          <span className="text-4xl">🧑‍🎨</span>
+        </div>
+        <h3 className="text-lg font-bold text-gray-800 mb-2">Coming Soon!</h3>
+        <p className="text-sm text-gray-500 max-w-xs mx-auto mb-4">
+          Pick from a gallery of custom avatar images to represent you on your summer adventure. New avatars unlock as you earn points!
+        </p>
+        <div className="grid grid-cols-4 gap-3 max-w-xs mx-auto mb-5">
+          {["🧒","👧","👦","🧒","👩","🧑","👱","🧑‍🦱"].map((e, i) => (
+            <div key={i} className="w-14 h-14 rounded-xl bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center text-2xl opacity-40">
+              {e}
+            </div>
+          ))}
+        </div>
+        <div className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 rounded-full">
+          <ImageIcon className="w-4 h-4 text-indigo-500" />
+          <span className="text-xs font-medium text-indigo-600">Custom avatar uploads coming soon</span>
+        </div>
+      </div>
+    </div>
+  );
+
+  // JOURNAL / DIARY
+  const JournalV = () => {
+    const [nEntry, setNEntry] = useState({ date: today(), text: "", mood: "😊" });
+    const [expandedId, setExpandedId] = useState(null);
+    const doAddEntry = () => {
+      if (!nEntry.text.trim()) return;
+      sJournal(prev => [...prev, { id: `j${Date.now()}`, date: nEntry.date, text: nEntry.text, mood: nEntry.mood }]);
+      setNEntry({ date: today(), text: "", mood: "😊" });
+      setMJournal(false);
+    };
+    const doDelEntry = (id) => sJournal(prev => prev.filter(e => e.id !== id));
+    const sortedEntries = [...journal].sort((a, b) => b.date.localeCompare(a.date));
+    const moods = ["😊", "😐", "😢", "😎", "🤩"];
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-bold text-gray-800">Journal</h2>
+          <button onClick={() => setMJournal(true)}
+            className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-sm font-medium bg-gradient-to-r", grad)}>
+            <Plus className="w-4 h-4" />New Entry
+          </button>
+        </div>
+        {sortedEntries.length === 0 ? (
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-8 text-center">
+            <BookOpen className="w-10 h-10 mx-auto text-gray-300 mb-3" />
+            <p className="text-gray-500 text-sm">No journal entries yet. Start writing!</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {sortedEntries.map(e => (
+              <div key={e.id} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">{e.mood}</span>
+                    <span className="text-sm font-medium text-gray-800">{fmtDate(e.date)}</span>
+                  </div>
+                  <button onClick={() => doDelEntry(e.id)}
+                    className="p-1 hover:bg-red-50 rounded text-gray-300 hover:text-red-400">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <p className={cn("text-sm text-gray-600", expandedId !== e.id && "line-clamp-2")}>
+                  {e.text}
+                </p>
+                {e.text.length > 100 && (
+                  <button onClick={() => setExpandedId(expandedId === e.id ? null : e.id)}
+                    className="text-xs text-indigo-600 mt-2 hover:underline font-medium">
+                    {expandedId === e.id ? "Show less" : "Read more"}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const views = {
+    dashboard: Dashboard, calendar: CalendarV, tasks: TasksV, rewards: RewardsV,
+    collectibles: CollectiblesV, progress: ProgressV, avatar: AvatarV, journal: JournalV, trophy: TrophyV, family: FamilyV
+  };
+  const V = views[view] || Dashboard;
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <Confetti show={confetti} onDone={() => setConfetti(false)} />
+      <Toast notifications={notifications} onDismiss={dismissNotif} />
+
+      {/* Mobile header */}
+      <header className="lg:hidden fixed top-0 left-0 right-0 z-30">
+        <div className={cn("flex items-center justify-between px-4 py-2.5 bg-gradient-to-r text-white", grad)}>
+          <div className="flex items-center gap-2">
+            <vibe.icon className="w-5 h-5" />
+            <span className="font-bold text-sm">Summer Planner</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">{pts} pts</span>
+            {isP && children.length > 1 && (
+              <select value={childId} onChange={e => setChildId(e.target.value)}
+                className="bg-white/20 text-white text-xs rounded-lg px-2 py-1 border-0 outline-none appearance-none">
+                {children.map(ch => <option key={ch.id} value={ch.id} className="text-gray-800">{ch.name}</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Mobile slide-out menu overlay */}
+      {sideOpen && (
+        <div className="fixed inset-0 z-40 lg:hidden" onClick={() => setSideOpen(false)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div className="absolute right-0 top-0 bottom-0 w-64 bg-white shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className={cn("p-4 bg-gradient-to-r text-white flex items-center justify-between", grad)}>
+              <span className="font-bold">Menu</span>
+              <button onClick={() => setSideOpen(false)} className="p-1 hover:bg-white/20 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <nav className="flex-1 p-3 space-y-1 overflow-auto">
+              {NAV.map(n => (
+                <button key={n.id} onClick={() => { setView(n.id); setSideOpen(false); }}
+                  className={cn("flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-sm font-medium",
+                    view === n.id ? "bg-indigo-50 text-indigo-700" : "text-gray-600 hover:bg-gray-50")}>
+                  <n.Ic className="w-4 h-4" />{n.label}
+                </button>
+              ))}
+            </nav>
+            <div className="p-3 border-t border-gray-100">
+              <div className="flex items-center gap-2 px-2 py-1.5">
+                <div className={cn("w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold bg-gradient-to-br", grad)}>
+                  {(isP ? profile.name : child.name)[0]?.toUpperCase()}
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-800">{isP ? profile.name : child.name}</div>
+                  <div className="text-[10px] text-gray-400">{isP ? "Parent" : `${child.grade} grade`}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Desktop sidebar */}
+      <aside className="hidden lg:flex w-52 bg-white border-r border-gray-100 flex-col fixed h-full z-30">
+        <div className={cn("p-3 bg-gradient-to-r text-white", grad)}>
+          <div className="flex items-center gap-2">
+            <vibe.icon className="w-5 h-5" />
+            <div>
+              <div className="font-bold text-sm leading-tight">Summer Planner</div>
+              <div className="text-white/70 text-[10px]">{vibe.emoji} {vibe.label}</div>
+            </div>
+          </div>
+        </div>
+        {isP && children.length > 1 && (
+          <div className="p-2 border-b border-gray-100">
+            <div className="text-[9px] uppercase text-gray-400 font-medium px-2">Viewing</div>
+            <div className="mt-1 space-y-0.5">
+              {children.map(ch => {
+                const cv = VIBES.find(v => v.id === ch.vibe);
+                return (
+                  <button key={ch.id} onClick={() => setChildId(ch.id)}
+                    className={cn("flex items-center gap-1.5 w-full px-2 py-1 rounded-lg text-xs",
+                      childId === ch.id ? "bg-indigo-50 text-indigo-700 font-semibold" : "text-gray-500 hover:bg-gray-50")}>
+                    <span>{cv?.emoji}</span>{ch.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        <nav className="flex-1 p-2 space-y-0.5">
+          {NAV.map(n => (
+            <button key={n.id} onClick={() => setView(n.id)}
+              className={cn("flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium",
+                view === n.id ? "bg-indigo-50 text-indigo-700" : "text-gray-600 hover:bg-gray-50")}>
+              <n.Ic className="w-4 h-4" />{n.label}
+            </button>
+          ))}
+        </nav>
+        <div className="p-2 border-t border-gray-100">
+          <div className="flex items-center gap-2 px-2 py-1.5">
+            <div className={cn("w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold bg-gradient-to-br", grad)}>
+              {(isP ? profile.name : child.name)[0]?.toUpperCase()}
+            </div>
+            <div>
+              <div className="text-xs font-medium text-gray-800">{isP ? profile.name : child.name}</div>
+              <div className="text-[10px] text-gray-400">{isP ? "Parent" : `${child.grade} grade`}</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <main className="flex-1 lg:ml-52 pt-14 lg:pt-0 pb-24 lg:pb-5 p-4 lg:p-5 max-w-3xl"><V /></main>
+
+      {/* Mobile bottom nav */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex lg:hidden z-30 safe-area-pb">
+        {NAV.slice(0, 5).map(n => (
+          <button key={n.id} onClick={() => setView(n.id)}
+            className={cn("flex-1 flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium",
+              view === n.id ? "text-indigo-600" : "text-gray-400")}>
+            <n.Ic className="w-5 h-5" />
+            {n.label}
+          </button>
+        ))}
+        <button onClick={() => setSideOpen(true)}
+          className="flex-1 flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium text-gray-400">
+          <LayoutGrid className="w-5 h-5" />
+          More
+        </button>
+      </nav>
+
+      {/* ── MODALS ── */}
+      <Modal show={mAddTask} onClose={() => setMAddTask(false)} title="Add Task">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">Task</label>
+            <input type="text" value={nTask.title} onChange={e => setNTask(t => ({ ...t, title: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="e.g., Read for 20 minutes" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-2">Category</label>
+            <div className="flex flex-wrap gap-2">
+              {CATS.map(c => (
+                <button key={c.id} onClick={() => setNTask(t => ({ ...t, cat: c.id }))}
+                  className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border",
+                    nTask.cat === c.id ? `${c.light} ${c.text} ${c.border}` : "bg-white border-gray-200 text-gray-500")}>
+                  <c.icon className="w-3.5 h-3.5" /> {c.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-2">Difficulty</label>
+            <div className="flex gap-2">
+              {DIFFS.map(d => (
+                <button key={d.id} onClick={() => setNTask(t => ({ ...t, diff: d.id }))}
+                  className={cn("flex-1 py-2 rounded-lg text-sm font-medium border text-center",
+                    nTask.diff === d.id ? `${d.bg} ${d.color}` : "bg-white border-gray-200 text-gray-500")}>
+                  {d.label} (+{d.points})
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">Date</label>
+            <input type="date" value={nTask.date || ""} onChange={e => setNTask(t => ({ ...t, date: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+          </div>
+          <button onClick={doAddTask} disabled={!nTask.title.trim()}
+            className={cn("w-full py-2.5 rounded-lg font-medium text-white",
+              nTask.title.trim() ? `bg-gradient-to-r ${grad}` : "bg-gray-200 text-gray-400 cursor-not-allowed")}>
+            Add Task
+          </button>
+        </div>
+      </Modal>
+
+      <Modal show={mAddEvt} onClose={() => setMAddEvt(false)} title="Add Event" wide>
+        <div className="space-y-4">
+          <input type="text" value={nEvt.title} onChange={e => setNEvt(t => ({ ...t, title: e.target.value }))}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Event name" />
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setNEvt(t => ({ ...t, rec: !t.rec }))}
+              className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 text-sm font-medium",
+                nEvt.rec ? "border-amber-400 bg-amber-50 text-amber-700" : "border-gray-200 text-gray-500")}>
+              <Repeat className="w-4 h-4" />{nEvt.rec ? "Recurring" : "One-time"}
+            </button>
+            {isP && (
+              <button onClick={() => setNEvt(t => ({ ...t, fam: !t.fam, mand: !t.fam }))}
+                className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 text-sm font-medium",
+                  nEvt.fam ? "border-red-300 bg-red-50 text-red-700" : "border-gray-200 text-gray-500")}>
+                <Flag className="w-4 h-4" />{nEvt.fam ? "Family (shared)" : "Personal"}
+              </button>
+            )}
+          </div>
+          {nEvt.rec ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-600 mb-2">Repeat every:</label>
+              <div className="flex gap-2">
+                {DF.map((d, i) => (
+                  <button key={d} onClick={() => setNEvt(t => ({
+                    ...t, rDays: t.rDays.includes(i) ? t.rDays.filter(x => x !== i) : [...t.rDays, i]
+                  }))}
+                    className={cn("w-10 h-10 rounded-lg text-xs font-semibold border-2",
+                      nEvt.rDays.includes(i) ? "bg-amber-500 text-white border-amber-500" : "border-gray-200 text-gray-500")}>
+                    {d.slice(0, 2)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <input type="date" value={nEvt.date} onChange={e => setNEvt(t => ({ ...t, date: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+          )}
+          <input type="time" value={nEvt.time} onChange={e => setNEvt(t => ({ ...t, time: e.target.value }))}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Time (optional)" />
+          <button onClick={doAddEvt}
+            disabled={!nEvt.title.trim() || (!nEvt.rec && !nEvt.date) || (nEvt.rec && !nEvt.rDays.length)}
+            className={cn("w-full py-2.5 rounded-lg font-medium text-white",
+              nEvt.title.trim() ? `bg-gradient-to-r ${grad}` : "bg-gray-200 text-gray-400 cursor-not-allowed")}>
+            {nEvt.rec ? "Create recurring events" : "Add Event"}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal show={mSugg} onClose={() => setMSugg(false)} title="Suggested Tasks">
+        <p className="text-sm text-gray-500 mb-3">Tap to add to today!</p>
+        <div className="space-y-3 max-h-96 overflow-auto">
+          {CATS.map(cat => (
+            <div key={cat.id}>
+              <div className={cn("flex items-center gap-2 mb-1.5", cat.text)}>
+                <cat.icon className="w-4 h-4" /><span className="font-semibold text-sm">{cat.label}</span>
+              </div>
+              <div className="space-y-0.5 ml-6">
+                {(SUGG[cat.id] || []).map((s, i) => {
+                  const diff = DIFFS.find(d => d.id === s.d);
+                  return (
+                    <button key={i} onClick={() => doSugg(cat.id, s)}
+                      className="flex items-center gap-2 w-full text-left p-1.5 rounded-lg hover:bg-gray-50">
+                      <Plus className="w-3 h-3 text-gray-400" />
+                      <span className="text-sm text-gray-700 flex-1">{s.t}</span>
+                      <span className={cn("text-[10px] px-1 py-0.5 rounded", diff?.bg, diff?.color)}>+{diff?.points}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Modal>
+
+      <Modal show={mTmpl} onClose={() => setMTmpl(false)} title="Schedule Templates" wide>
+        <p className="text-sm text-gray-500 mb-3">One-click to fill your entire summer!</p>
+        <div className="space-y-3">
+          {TEMPLATES.map(tmpl => (
+            <div key={tmpl.id} className="bg-white border border-gray-100 rounded-xl p-4 hover:border-indigo-200 transition-all">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">{tmpl.icon}</span>
+                <div className="flex-1">
+                  <div className="font-bold text-gray-800">{tmpl.name}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">{tmpl.desc}</div>
+                  <div className="mt-2 space-y-0.5">
+                    {tmpl.tasks.map((t, i) => {
+                      const cat = CATS.find(c => c.id === t.cat);
+                      return (
+                        <div key={i} className="flex items-center gap-1.5 text-xs">
+                          <div className={cn("w-1.5 h-1.5 rounded-full", cat?.color)} />
+                          <span className="text-gray-600">{t.t}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <button onClick={() => applyTmpl(tmpl)}
+                  className={cn("px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-gradient-to-r flex-shrink-0", grad)}>
+                  Apply
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Modal>
+
+      <Modal show={mAddRew} onClose={() => setMAddRew(false)} title="Custom Reward">
+        <div className="space-y-4">
+          <input type="text" value={nRew.name} onChange={e => setNRew(r => ({ ...r, name: e.target.value }))}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Reward name" />
+          <input type="number" min="1" value={nRew.cost} onChange={e => setNRew(r => ({ ...r, cost: Math.max(1, Number(e.target.value)) }))}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+          <div className="flex flex-wrap gap-2">
+            {REWARD_ICONS.map(ic => (
+              <button key={ic} onClick={() => setNRew(r => ({ ...r, icon: ic }))}
+                className={cn("w-10 h-10 rounded-lg text-xl flex items-center justify-center border-2",
+                  nRew.icon === ic ? "border-amber-400 bg-amber-50" : "border-gray-200")}>
+                {ic}
+              </button>
+            ))}
+          </div>
+          <button onClick={doAddRew} disabled={!nRew.name.trim()}
+            className={cn("w-full py-2.5 rounded-lg font-medium text-white",
+              nRew.name.trim() ? "bg-amber-500 hover:bg-amber-600" : "bg-gray-200 text-gray-400 cursor-not-allowed")}>
+            Create Reward
+          </button>
+        </div>
+      </Modal>
+
+      <Modal show={mDraw} onClose={() => setMDraw(false)} title="Lucky Draw Results" wide>
+        <div className="space-y-4">
+          <div className="text-center">
+            <p className="text-sm text-gray-600 mb-4">You've completed <span className="font-bold">{drawEntries.length}</span> full week(s)!</p>
+          </div>
+          {drawWinner && (
+            <div className={cn("rounded-xl border-2 p-4 text-center bg-gradient-to-br text-white", grad)}>
+              <div className="text-4xl mb-2">🎉</div>
+              <p className="text-sm mb-2">Your Lucky Draw Prize:</p>
+              <div className="text-5xl mb-2">{drawWinner.icon}</div>
+              <p className="text-lg font-bold">{drawWinner.name}</p>
+            </div>
+          )}
+          {drawResults.length > 0 && (
+            <div>
+              <h4 className="text-sm font-bold text-gray-700 mb-2">Past Wins</h4>
+              <div className="space-y-1.5">
+                {drawResults.map((r, i) => (
+                  <div key={i} className="flex items-center gap-2 p-2 bg-green-50 rounded-lg">
+                    <span className="text-lg">{r.icon}</span>
+                    <span className="text-sm font-medium text-green-800 flex-1">{r.name}</span>
+                    <Check className="w-4 h-4 text-green-500" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      <Modal show={mJournal} onClose={() => setMJournal(false)} title="New Journal Entry">
+        {(() => {
+          const [nEntry, setNEntry] = useState({ date: today(), text: "", mood: "😊" });
+          const moods = ["😊", "😐", "😢", "😎", "🤩"];
+          const doAddEntry = () => {
+            if (!nEntry.text.trim()) return;
+            sJournal(prev => [...prev, { id: `j${Date.now()}`, date: nEntry.date, text: nEntry.text, mood: nEntry.mood }]);
+            setNEntry({ date: today(), text: "", mood: "😊" });
+            setMJournal(false);
+          };
+          return (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Date</label>
+                <input type="date" value={nEntry.date} onChange={e => setNEntry(n => ({ ...n, date: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Mood</label>
+                <div className="flex gap-2">
+                  {moods.map(m => (
+                    <button key={m} onClick={() => setNEntry(n => ({ ...n, mood: m }))}
+                      className={cn("w-10 h-10 rounded-lg border-2 text-lg", nEntry.mood === m ? "bg-indigo-50 border-indigo-500" : "border-gray-200 hover:bg-gray-50")}>
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Entry</label>
+                <textarea value={nEntry.text} onChange={e => setNEntry(n => ({ ...n, text: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm h-32 resize-none" placeholder="Write your thoughts..." />
+              </div>
+              <button onClick={doAddEntry} disabled={!nEntry.text.trim()}
+                className={cn("w-full py-2.5 rounded-lg font-medium text-white",
+                  nEntry.text.trim() ? `bg-gradient-to-r ${grad}` : "bg-gray-200 text-gray-400 cursor-not-allowed")}>
+                Save Entry
+              </button>
+            </div>
+          );
+        })()}
+      </Modal>
+    </div>
+  );
+}
+
+/* ═══ ROOT ═══ */
+function App() {
+  const [profile, setProfile] = useState(null);
+  return profile ? <App2 profile={profile} /> : <Onboarding onComplete={setProfile} />;
+}
+
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+  </script>
+</body>
+</html>
