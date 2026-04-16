@@ -11,28 +11,24 @@
     .safe-area-pb { padding-bottom: env(safe-area-inset-bottom, 0px); }
     @media print { nav, header, aside, button { display: none !important; } main { margin: 0 !important; padding: 0 !important; } }
     body { margin: 0; }
+    #loading { display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: system-ui; color: #6366f1; }
+    #loading .spinner { width: 32px; height: 32px; border: 3px solid #e0e7ff; border-top-color: #6366f1; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 12px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
-  <script type="importmap">
-  {
-    "imports": {
-      "react": "https://esm.sh/react@18.3.1",
-      "react/": "https://esm.sh/react@18.3.1/",
-      "react-dom": "https://esm.sh/react-dom@18.3.1",
-      "react-dom/": "https://esm.sh/react-dom@18.3.1/",
-      "recharts": "https://esm.sh/recharts@2.12.7?external=react,react-dom",
-      "lucide-react": "https://esm.sh/lucide-react@0.383.0?external=react"
-    }
-  }
-  </script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
-  <div id="root"></div>
-  <script type="text/babel" data-type="module">
-import React from "react";
-import { useState, useEffect, useMemo } from "react";
-import {
-  Sun, Star, Gift, Calendar as CalIcon, CheckCircle2, Plus,
+  <div id="root">
+    <div id="loading"><div class="spinner"></div>Loading Summer Planner...</div>
+  </div>
+
+  <!-- Babel standalone for JSX compilation -->
+  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+
+  <!-- App source (not executed by browser — compiled by Babel after deps load) -->
+  <script id="app-jsx" type="text/plain">
+const { useState, useEffect, useMemo, createElement } = React;
+const {
+  Sun, Star, Gift, Calendar: CalIcon, CheckCircle2, Plus,
   ChevronLeft, ChevronRight, Flame, Target, BookOpen, Palette,
   Dumbbell, Home, Users, Sparkles, Rocket, Fish, TreePine, Gamepad2,
   X, BarChart3, ArrowRight, Check, Trash2, Heart, UserPlus,
@@ -40,12 +36,9 @@ import {
   GripVertical, Flag, Timer, Package, AlertCircle,
   LayoutGrid, Columns, List, Trophy, Lock, Ticket, Medal, Award, Shirt, Frame, ImageIcon,
   MapPin, Loader2, Pencil, SmilePlus
-} from "lucide-react";
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell
-} from "recharts";
-import { createRoot } from "react-dom/client";
+} = lucideReact;
+const { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } = Recharts;
+
 
 /* ─── Utility ─── */
 const cn = (...c) => c.filter(Boolean).join(" ");
@@ -2373,7 +2366,45 @@ function App() {
 }
 
 
-createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(createElement(App));
+
+  </script>
+
+  <!-- Load deps from esm.sh (shared React instance), then compile & run JSX -->
+  <script type="module">
+    try {
+      // Load all deps from esm.sh — it deduplicates React across packages
+      const [ReactMod, ReactDOMMod, lucideReactMod, RechartsMod] = await Promise.all([
+        import("https://esm.sh/react@18.3.1"),
+        import("https://esm.sh/react-dom@18.3.1/client"),
+        import("https://esm.sh/lucide-react@0.383.0"),
+        import("https://esm.sh/recharts@2.12.7"),
+      ]);
+
+      // Assign to globals so Babel-compiled code can access them
+      window.React = ReactMod.default || ReactMod;
+      window.createRoot = ReactDOMMod.createRoot;
+      window.lucideReact = lucideReactMod;
+      window.Recharts = RechartsMod;
+
+      // Get the JSX source and compile with Babel
+      const jsxSource = document.getElementById("app-jsx").textContent;
+      const compiled = Babel.transform(jsxSource, {
+        presets: ["react"],
+        filename: "App.jsx",
+      }).code;
+
+      // Inject compiled code as a regular script (runs in global scope)
+      const script = document.createElement("script");
+      script.textContent = compiled;
+      document.head.appendChild(script);
+    } catch (err) {
+      document.getElementById("root").innerHTML =
+        '<div style="padding:2rem;font-family:system-ui;color:#ef4444;">' +
+        '<h2>Failed to load</h2><pre style="white-space:pre-wrap;font-size:13px;">' +
+        err.message + '\n' + (err.stack || '') + '</pre>' +
+        '<p style="color:#666;margin-top:1rem;">Check your internet connection and try refreshing.</p></div>';
+    }
   </script>
 </body>
 </html>
