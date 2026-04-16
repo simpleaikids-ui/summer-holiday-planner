@@ -1034,6 +1034,35 @@ function App2({ profile, onClearAll }) {
   const [leaderboardOn, setLeaderboardOn] = useLocalState("leaderboardOn", true);
   const [mClear, setMClear] = useState(false);
 
+  // Parent-mode lock. PIN is persisted; unlocked flag is session-only so
+  // a refresh always re-locks (kids can't leave it open accidentally).
+  const [rewGuideOpen, setRewGuideOpen] = useLocalState("rewGuideOpen", true);
+  const [parentPin, setParentPin] = useLocalState("parentPin", "");
+  const [parentUnlocked, setParentUnlocked] = useState(profile.role === "parent");
+  const [mParentPin, setMParentPin] = useState(null); // "set" | "enter" | null
+  const [pinInput, setPinInput] = useState("");
+  const [pinConfirm, setPinConfirm] = useState("");
+  const [pinError, setPinError] = useState("");
+  const openParentGate = () => {
+    setPinInput(""); setPinConfirm(""); setPinError("");
+    setMParentPin(parentPin ? "enter" : "set");
+  };
+  const submitPin = () => {
+    if (mParentPin === "set") {
+      if (!/^\d{4}$/.test(pinInput)) { setPinError("PIN must be 4 digits."); return; }
+      if (pinInput !== pinConfirm) { setPinError("PINs don't match."); return; }
+      setParentPin(pinInput);
+      setParentUnlocked(true);
+      setMParentPin(null);
+      addNotif("Parent Mode Unlocked", "PIN set. Tap the lock again to lock.", "🔓", "reminder");
+    } else if (mParentPin === "enter") {
+      if (pinInput !== parentPin) { setPinError("Incorrect PIN."); return; }
+      setParentUnlocked(true);
+      setMParentPin(null);
+      addNotif("Parent Mode Unlocked", "You can now approve requests and edit rewards.", "🔓", "reminder");
+    }
+  };
+
   // Weather – real forecast for today only (via Open-Meteo API)
   const [todayWx, setTodayWx] = useState(null); // { locName, hi, lo, icon, label, indoor } or null
   const [wxLoading, setWxLoading] = useState(true);
@@ -1072,6 +1101,10 @@ function App2({ profile, onClearAll }) {
   const sJournal = fn => setAJournal(prev => ({ ...prev, [childId]: typeof fn === "function" ? fn(prev[childId] || []) : fn }));
 
   const avatar = aAvatar[childId] || { body: "#F5D0A9", hair: "👦", eyes: "👀", mouth: "😊", accessory: "" };
+
+  // Parent-mode gating: `isP` tells us the profile structure (parent vs student),
+  // while `effIsP` gates parent-only UI actions based on the live lock state.
+  const effIsP = parentUnlocked;
 
   // Equipped collectibles — resolved to full objects (or null)
   const equip = aEquip[childId] || { theme: null, title: null, frame: null };
@@ -1213,13 +1246,22 @@ function App2({ profile, onClearAll }) {
     setConfetti(true);
     addNotif("Reward Unlocked!", `You redeemed: ${r.name}`, r.icon, "reward");
   };
-  const doAddRew = () => {
+  const doAddRew = (status = "active") => {
     if (!nRew.name.trim()) return;
-    sR(prev => [...prev, { ...nRew, id: `r${Date.now()}` }]);
+    const requestedBy = status === "pending" ? (child?.name || profile.name) : null;
+    sR(prev => [...prev, { ...nRew, id: `r${Date.now()}`, status, requestedBy }]);
     setNRew({ name: "", cost: 100, icon: "🎁" });
     setMAddRew(false);
+    if (status === "pending") {
+      addNotif("Request Sent!", `"${nRew.name}" is waiting for a parent to approve it.`, "⏳", "reminder");
+    }
   };
   const doDelRew = (id) => sR(prev => prev.filter(r => r.id !== id));
+  const doApproveRew = (id) => {
+    sR(prev => prev.map(r => r.id === id ? { ...r, status: "active" } : r));
+    const r = rews.find(x => x.id === id);
+    if (r) addNotif("Reward Approved!", `"${r.name}" is now available in the shop.`, "✅", "reward");
+  };
 
   const doAddEvt = () => {
     if (!nEvt.title.trim()) return;
@@ -1828,37 +1870,135 @@ function App2({ profile, onClearAll }) {
         <h2 className="text-2xl font-bold text-gray-800 font-display flex items-center gap-2">
           <span className="animate-bounce-soft">🎁</span>Reward Shop
         </h2>
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2 items-center flex-wrap">
           <div className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r text-white font-bold text-sm shadow-md animate-pulse-glow", grad)}>
             <Star className="w-4 h-4" />{pts} pts
           </div>
-          {isP && <button onClick={() => setMAddRew(true)} className="flex items-center gap-1 px-3 py-1.5 rounded-full border-2 border-indigo-200 text-xs font-bold text-indigo-600 bg-white hover:bg-indigo-50"><Plus className="w-3.5 h-3.5" />Custom</button>}
+          {effIsP ? (
+            <button onClick={() => { setNRew({ name: "", cost: 100, icon: "🎁" }); setMAddRew("active"); }}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-full border-2 border-indigo-200 text-xs font-bold text-indigo-600 bg-white hover:bg-indigo-50">
+              <Plus className="w-3.5 h-3.5" />Custom
+            </button>
+          ) : (
+            <button onClick={() => { setNRew({ name: "", cost: 100, icon: "🎁" }); setMAddRew("pending"); }}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-gradient-to-r from-pink-500 to-rose-500 text-xs font-bold text-white shadow-sm hover:shadow-md hover:scale-105 transition-all">
+              <Plus className="w-3.5 h-3.5" />Request
+            </button>
+          )}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        {rews.map(r => (
-          <div key={r.id} className={cn("rounded-3xl border-2 shadow-md p-4 flex flex-col items-center text-center relative kid-card",
-            pts >= r.cost
-              ? "bg-gradient-to-br from-yellow-50 to-amber-100 border-amber-300"
-              : "bg-gray-50 border-gray-200 opacity-70")}>
-            {isP && (
-              <button onClick={() => doDelRew(r.id)} className="absolute top-1.5 right-1.5 p-1 hover:bg-red-100 rounded-full text-gray-300 hover:text-red-400">
-                <Trash2 className="w-3 h-3" />
-              </button>
-            )}
-            <span className={cn("text-4xl mb-1.5", pts >= r.cost && "animate-bounce-soft")}>{r.icon}</span>
-            <span className="font-bold text-sm text-gray-800">{r.name}</span>
-            <span className={cn("text-xs mt-1 font-bold font-display", pts >= r.cost ? "text-amber-600" : "text-gray-400")}>⭐ {r.cost} pts</span>
-            <button onClick={() => doRedeem(r)} disabled={pts < r.cost}
-              className={cn("mt-2.5 px-4 py-2 rounded-full text-sm font-bold w-full shadow-sm transition-all",
-                pts >= r.cost
-                  ? "bg-gradient-to-r from-amber-400 to-orange-500 text-white hover:shadow-lg hover:scale-105"
-                  : "bg-gray-100 text-gray-400 cursor-not-allowed")}>
-              {pts >= r.cost ? "🎉 Redeem!" : `Need ${r.cost - pts} more`}
-            </button>
+
+      <div className={cn("rounded-3xl border-2 shadow-sm overflow-hidden transition-all",
+        rewGuideOpen ? "bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-200" : "bg-white border-gray-200")}>
+        <button onClick={() => setRewGuideOpen(o => !o)}
+          className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-white/40">
+          <span className="text-lg">💡</span>
+          <span className="flex-1 text-sm font-bold text-gray-800 font-display">How the Reward Shop works</span>
+          <span className="text-xs text-gray-500 font-bold">{rewGuideOpen ? "Hide" : "Show"}</span>
+          <ChevronRight className={cn("w-4 h-4 text-gray-400 transition-transform", rewGuideOpen && "rotate-90")} />
+        </button>
+        {rewGuideOpen && (
+          <div className="px-4 pb-4 space-y-2.5 text-sm text-gray-700">
+            <div className="flex items-start gap-2.5">
+              <span className="text-base flex-shrink-0">🎯</span>
+              <p><span className="font-bold">Students</span> tap the pink <span className="font-bold text-pink-600">Request</span> button to propose a custom reward — pick a name, icon, and point cost. It shows up under <span className="font-bold text-amber-700">Pending</span> until a parent approves it.</p>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <span className="text-base flex-shrink-0">✅</span>
+              <p><span className="font-bold">Parents</span> unlock <span className="font-bold text-indigo-600">Parent Mode</span> (tap the 🔒 lock in the header) to approve / reject pending requests and add <span className="font-bold">Custom</span> rewards instantly. Each approved reward joins the main shop.</p>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <span className="text-base flex-shrink-0">🔐</span>
+              <p><span className="font-bold">PIN protection:</span> the first unlock asks you to set a 4-digit PIN. Parent Mode resets on every page refresh, so kids can't leave it unlocked.</p>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <span className="text-base flex-shrink-0">🎉</span>
+              <p><span className="font-bold">Redeem anytime</span> once you have enough points — tap Redeem on a reward. Your points go down and it moves to your Redeemed list.</p>
+            </div>
           </div>
-        ))}
+        )}
       </div>
+
+      {(() => {
+        const pending = rews.filter(r => r.status === "pending");
+        const active = rews.filter(r => r.status !== "pending");
+        return (
+          <>
+            {pending.length > 0 && (
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-3xl border-2 border-amber-300 shadow-md p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl animate-bounce-soft">⏳</span>
+                  <div className="flex-1">
+                    <h3 className="font-bold text-amber-800 font-display text-sm">
+                      {effIsP ? `Pending approval (${pending.length})` : "Your requests"}
+                    </h3>
+                    <p className="text-[11px] text-amber-700 font-semibold">
+                      {effIsP ? "Review and approve your child's reward requests." : "Waiting for a parent to approve these."}
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {pending.map(r => (
+                    <div key={r.id} className="rounded-2xl border-2 border-dashed border-amber-300 bg-white/70 p-3 flex items-center gap-3">
+                      <span className="text-3xl flex-shrink-0">{r.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-bold text-gray-800 truncate">{r.name}</div>
+                        <div className="text-[11px] text-amber-700 font-bold font-display">⭐ {r.cost} pts</div>
+                        {r.requestedBy && <div className="text-[10px] text-gray-500 font-semibold truncate">from {r.requestedBy}</div>}
+                      </div>
+                      {effIsP ? (
+                        <div className="flex gap-1 flex-shrink-0">
+                          <button onClick={() => doApproveRew(r.id)}
+                            title="Approve" className="p-2 rounded-full bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-sm hover:shadow-md hover:scale-110 transition-all">
+                            <Check className="w-4 h-4" strokeWidth={3} />
+                          </button>
+                          <button onClick={() => doDelRew(r.id)}
+                            title="Reject" className="p-2 rounded-full bg-white border-2 border-red-200 text-red-500 hover:bg-red-50 hover:scale-110 transition-all">
+                            <X className="w-4 h-4" strokeWidth={3} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-1 rounded-full border border-amber-200">⏳ Pending</span>
+                          <button onClick={() => doDelRew(r.id)}
+                            title="Cancel request" className="p-1 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              {active.map(r => (
+                <div key={r.id} className={cn("rounded-3xl border-2 shadow-md p-4 flex flex-col items-center text-center relative kid-card",
+                  pts >= r.cost
+                    ? "bg-gradient-to-br from-yellow-50 to-amber-100 border-amber-300"
+                    : "bg-gray-50 border-gray-200 opacity-70")}>
+                  {effIsP && (
+                    <button onClick={() => doDelRew(r.id)} className="absolute top-1.5 right-1.5 p-1 hover:bg-red-100 rounded-full text-gray-300 hover:text-red-400">
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+                  <span className={cn("text-4xl mb-1.5", pts >= r.cost && "animate-bounce-soft")}>{r.icon}</span>
+                  <span className="font-bold text-sm text-gray-800">{r.name}</span>
+                  <span className={cn("text-xs mt-1 font-bold font-display", pts >= r.cost ? "text-amber-600" : "text-gray-400")}>⭐ {r.cost} pts</span>
+                  <button onClick={() => doRedeem(r)} disabled={pts < r.cost}
+                    className={cn("mt-2.5 px-4 py-2 rounded-full text-sm font-bold w-full shadow-sm transition-all",
+                      pts >= r.cost
+                        ? "bg-gradient-to-r from-amber-400 to-orange-500 text-white hover:shadow-lg hover:scale-105"
+                        : "bg-gray-100 text-gray-400 cursor-not-allowed")}>
+                    {pts >= r.cost ? "🎉 Redeem!" : `Need ${r.cost - pts} more`}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        );
+      })()}
       {drawEntries.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
           <div className="flex justify-between items-center mb-2">
@@ -2385,6 +2525,12 @@ function App2({ profile, onClearAll }) {
             <span className="font-bold text-base font-display">Summer Planner</span>
           </div>
           <div className="flex items-center gap-2">
+            <button onClick={() => parentUnlocked ? setParentUnlocked(false) : openParentGate()}
+              title={parentUnlocked ? "Lock parent mode" : "Unlock parent mode"}
+              className={cn("text-xs px-2 py-1 rounded-full font-bold flex items-center gap-1 transition-all",
+                parentUnlocked ? "bg-green-400/90 text-white" : "bg-white/25 text-white hover:bg-white/35")}>
+              <Lock className="w-3 h-3" />
+            </button>
             <span className="text-xs bg-white/25 px-2.5 py-1 rounded-full font-bold flex items-center gap-1 animate-pulse-glow">
               <Star className="w-3 h-3" />{pts}
             </span>
@@ -2430,6 +2576,14 @@ function App2({ profile, onClearAll }) {
                   <div className="text-[10px] text-gray-400">{isP ? "Parent" : `${child.grade} grade`}</div>
                 </div>
               </div>
+              <button onClick={() => { setSideOpen(false); parentUnlocked ? setParentUnlocked(false) : openParentGate(); }}
+                className={cn("flex items-center gap-2 w-full px-2.5 py-2 rounded-xl text-xs font-bold",
+                  parentUnlocked
+                    ? "text-green-700 bg-green-50 hover:bg-green-100"
+                    : "text-gray-500 hover:text-indigo-600 hover:bg-indigo-50")}>
+                <Lock className="w-3.5 h-3.5" />
+                {parentUnlocked ? "Parent mode ON · Lock" : "Unlock parent mode"}
+              </button>
               <button onClick={() => { setMClear(true); setSideOpen(false); }}
                 className="flex items-center gap-2 w-full px-2.5 py-2 rounded-xl text-xs font-semibold text-gray-500 hover:text-red-600 hover:bg-red-50">
                 <Trash2 className="w-3.5 h-3.5" />Clear all data
@@ -2488,6 +2642,14 @@ function App2({ profile, onClearAll }) {
               <div className="text-[10px] text-gray-400">{isP ? "Parent" : `${child.grade} grade`}</div>
             </div>
           </div>
+          <button onClick={() => parentUnlocked ? setParentUnlocked(false) : openParentGate()}
+            className={cn("flex items-center gap-2 w-full px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition-colors",
+              parentUnlocked
+                ? "text-green-700 bg-green-50 hover:bg-green-100"
+                : "text-gray-500 hover:text-indigo-600 hover:bg-indigo-50")}>
+            <Lock className="w-3.5 h-3.5" />
+            {parentUnlocked ? "Parent mode ON · Lock" : "Unlock parent mode"}
+          </button>
           <button onClick={() => setMClear(true)}
             className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-xl text-[11px] font-semibold text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors">
             <Trash2 className="w-3.5 h-3.5" />Clear all data
@@ -2574,7 +2736,7 @@ function App2({ profile, onClearAll }) {
                 nEvt.rec ? "border-amber-400 bg-amber-50 text-amber-700" : "border-gray-200 text-gray-500")}>
               <Repeat className="w-4 h-4" />{nEvt.rec ? "Recurring" : "One-time"}
             </button>
-            {isP && (
+            {effIsP && (
               <button onClick={() => setNEvt(t => ({ ...t, fam: !t.fam, mand: !t.fam }))}
                 className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 text-sm font-medium",
                   nEvt.fam ? "border-red-300 bg-red-50 text-red-700" : "border-gray-200 text-gray-500")}>
@@ -2670,12 +2832,18 @@ function App2({ profile, onClearAll }) {
         </div>
       </Modal>
 
-      <Modal show={mAddRew} onClose={() => setMAddRew(false)} title="Custom Reward">
+      <Modal show={!!mAddRew} onClose={() => setMAddRew(false)}
+        title={mAddRew === "pending" ? "Request a Reward" : "Custom Reward"}>
         <div className="space-y-4">
+          {mAddRew === "pending" && (
+            <div className="text-xs text-amber-800 bg-amber-50 border-2 border-amber-200 rounded-2xl p-3 font-semibold">
+              Your request will show up as pending until a parent approves it.
+            </div>
+          )}
           <input type="text" value={nRew.name} onChange={e => setNRew(r => ({ ...r, name: e.target.value }))}
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Reward name" />
           <input type="number" min="1" value={nRew.cost} onChange={e => setNRew(r => ({ ...r, cost: Math.max(1, Number(e.target.value)) }))}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Cost in points" />
           <div className="flex flex-wrap gap-2">
             {REWARD_ICONS.map(ic => (
               <button key={ic} onClick={() => setNRew(r => ({ ...r, icon: ic }))}
@@ -2685,10 +2853,14 @@ function App2({ profile, onClearAll }) {
               </button>
             ))}
           </div>
-          <button onClick={doAddRew} disabled={!nRew.name.trim()}
-            className={cn("w-full py-2.5 rounded-lg font-medium text-white",
-              nRew.name.trim() ? "bg-amber-500 hover:bg-amber-600" : "bg-gray-200 text-gray-400 cursor-not-allowed")}>
-            Create Reward
+          <button onClick={() => doAddRew(mAddRew === "pending" ? "pending" : "active")} disabled={!nRew.name.trim()}
+            className={cn("w-full py-2.5 rounded-lg font-bold text-white",
+              nRew.name.trim()
+                ? (mAddRew === "pending"
+                    ? "bg-gradient-to-r from-pink-500 to-rose-500 hover:shadow-lg"
+                    : "bg-gradient-to-r from-amber-500 to-orange-500 hover:shadow-lg")
+                : "bg-gray-200 text-gray-400 cursor-not-allowed")}>
+            {mAddRew === "pending" ? "Send Request" : "Create Reward"}
           </button>
         </div>
       </Modal>
@@ -2764,6 +2936,53 @@ function App2({ profile, onClearAll }) {
             </div>
           );
         })()}
+      </Modal>
+
+      <Modal show={!!mParentPin} onClose={() => setMParentPin(null)}
+        title={mParentPin === "set" ? "Set Parent PIN" : "Enter Parent PIN"}>
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600 font-semibold">
+            {mParentPin === "set"
+              ? "Choose a 4-digit PIN. You'll need it to unlock parent controls like approving reward requests."
+              : "Enter your 4-digit PIN to unlock parent controls."}
+          </p>
+          <input
+            type="password" inputMode="numeric" pattern="\d*" maxLength={4}
+            value={pinInput}
+            onChange={e => { setPinInput(e.target.value.replace(/\D/g, "").slice(0, 4)); setPinError(""); }}
+            onKeyDown={e => { if (e.key === "Enter") submitPin(); }}
+            autoFocus
+            placeholder="• • • •"
+            className="w-full px-4 py-3 border-2 border-indigo-200 rounded-2xl text-2xl font-bold text-center tracking-[0.5em] font-display" />
+          {mParentPin === "set" && (
+            <input
+              type="password" inputMode="numeric" pattern="\d*" maxLength={4}
+              value={pinConfirm}
+              onChange={e => { setPinConfirm(e.target.value.replace(/\D/g, "").slice(0, 4)); setPinError(""); }}
+              onKeyDown={e => { if (e.key === "Enter") submitPin(); }}
+              placeholder="confirm"
+              className="w-full px-4 py-3 border-2 border-indigo-200 rounded-2xl text-2xl font-bold text-center tracking-[0.5em] font-display" />
+          )}
+          {pinError && (
+            <div className="text-xs font-bold text-red-600 bg-red-50 border-2 border-red-200 rounded-xl px-3 py-2">
+              {pinError}
+            </div>
+          )}
+          <button onClick={submitPin}
+            className="w-full py-2.5 rounded-full font-bold text-white bg-gradient-to-r from-indigo-500 to-purple-500 hover:shadow-lg">
+            {mParentPin === "set" ? "Set PIN & Unlock" : "Unlock"}
+          </button>
+          {mParentPin === "enter" && (
+            <button onClick={() => {
+              if (confirm("Forgot your PIN? This will reset it — you'll be asked to set a new one next time.")) {
+                setParentPin("");
+                setMParentPin(null);
+              }
+            }} className="w-full text-xs text-gray-500 hover:text-red-500 font-semibold">
+              Forgot PIN?
+            </button>
+          )}
+        </div>
       </Modal>
 
       <Modal show={mClear} onClose={() => setMClear(false)} title="Clear all data?">
