@@ -143,8 +143,11 @@ const DF = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "S
 
 function getDIM(m, y) { return new Date(y, m + 1, 0).getDate(); }
 function getFDOW(m, y) { return new Date(y, m, 1).getDay(); }
+// dk accepts 0-indexed month (as returned by Date.getMonth / cMonth) and
+// emits the standard 1-indexed ISO format "YYYY-MM-DD" to stay compatible
+// with <input type="date"> values.
 function dk(y, m, d) {
-  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 function today() {
   const t = new Date();
@@ -152,7 +155,7 @@ function today() {
 }
 function parsedk(s) {
   const [y, m, d] = s.split("-").map(Number);
-  return new Date(y, m, d);
+  return new Date(y, m - 1, d);
 }
 function fmtDate(s) {
   if (!s) return "";
@@ -1293,7 +1296,8 @@ function App2({ profile }) {
               </div>
               <div className="ml-auto text-right">
                 <div className="text-xl">🏖️</div>
-                <div className="text-white/80 text-xs font-semibold">{fmtDate(profile.startDate).replace(/,\s*$/, "")}</div>
+                <div className="text-white/70 text-[10px] uppercase tracking-wider font-bold">Starts</div>
+                <div className="text-white/90 text-xs font-semibold">{fmtDate(profile.startDate).replace(/,\s*$/, "")}</div>
               </div>
             </>
           ) : summerEnded ? (
